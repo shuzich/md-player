@@ -1,0 +1,40 @@
+# md-player 代码格式：LLVM 基础，120 列（CLAUDE.md「技术栈与版本」）
+---
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Attach
+PointerAlignment: Left
+DerivePointerAlignment: false
+SpaceAfterTemplateKeyword: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+FixNamespaceComments: true
+NamespaceIndentation: None
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # 本项目头文件优先
+  - Regex: '^"'
+    Priority: 1
+  # Qt
+  - Regex: '^<Q'
+    Priority: 2
+  # 第三方 C 库（mpv / libbluray / libdvdread）
+  - Regex: '^<(mpv|libbluray|dvdread)/'
+    Priority: 3
+  # 标准库与系统头
+  - Regex: '^<'
+    Priority: 4
+---
+Language: ObjC
+BasedOnStyle: LLVM
+ColumnLimit: 120
+IndentWidth: 4

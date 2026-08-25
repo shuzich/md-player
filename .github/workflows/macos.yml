@@ -1,0 +1,45 @@
+name: macOS
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (macOS / Qt6 / Ninja)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Qt 与构建工具走 Homebrew，与 CLAUDE.md「构建」一节保持同源。
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install qt cmake ninja pkg-config
+
+      # T0 的能力探测在 CI 也跑一遍，作为「系统 mpv 是否够用」的持续观测。
+      # 结论以本地 macOS 验收机为准，CI 缺 mpv 不视为失败。
+      - name: Probe mpv capabilities (informational)
+        continue-on-error: true
+        run: |
+          brew install mpv libbluray libdvdread || true
+          ./scripts/check-mpv-caps.sh
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Show artifact
+        run: ls -l build/md-player

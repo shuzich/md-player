@@ -1,0 +1,71 @@
+# ---- 构建产物 ----
+build/
+build-*/
+cmake-build-*/
+install/
+*.o
+*.a
+*.dylib
+*.so
+*.dll
+*.exe
+
+# ---- CMake ----
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# ---- Qt ----
+*.qmlc
+*.jsc
+*_qmlcache.qrc
+.qmake.stash
+.qtc_clangd/
+*.autosave
+*.user
+*.user.*
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+# ---- 自编译依赖（third_party/prefix 为产物，vendored 源码另行显式跟踪）----
+third_party/prefix/
+third_party/mpv-src/
+third_party/*-src/
+third_party/*.tar.*
+third_party/*.zip
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+*.app/
+
+# ---- Windows ----
+Thumbs.db
+desktop.ini
+*.pdb
+*.ilk
+
+# ---- 编辑器 / 工具 ----
+.vscode/
+.idea/
+*.swp
+*~
+.cache/
+
+# ---- 本地测试媒体（MD_TEST_MEDIA 指向仓库外，此处兜底）----
+testmedia/
+*.iso
+*.mkv
+*.m2ts
+*.mp4
+
+# ---- kickoff 归档（内容已展开到仓库）----
+md-player-kickoff.zip
