@@ -41,6 +41,9 @@ find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Quick QuickControls2)
 
 qt_standard_project_setup(REQUIRES 6.7)
 
+# QML 源码放在 src/ui/ 子目录，需显式采用新策略，否则 Qt 要求每个子目录自带 qmldir。
+qt_policy(SET QTP0004 NEW)
+
 qt_add_executable(md-player
     src/app/main.cpp
     src/app/strings.h
