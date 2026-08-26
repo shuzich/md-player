@@ -57,6 +57,8 @@ qt_add_executable(md-player
     src/core/PlayerController.h
     src/core/MpvObject.cpp
     src/core/MpvObject.h
+    src/core/ResumeStore.cpp
+    src/core/ResumeStore.h
 )
 
 qt_add_qml_module(md-player
@@ -64,6 +66,8 @@ qt_add_qml_module(md-player
     VERSION 1.0
     QML_FILES
         src/ui/Main.qml
+        src/ui/SeekBar.qml
+        src/ui/ControlBar.qml
 )
 
 # src 供 "core/PlayerController.h" 这类带目录前缀的引用；

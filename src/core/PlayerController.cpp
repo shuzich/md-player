@@ -1,11 +1,16 @@
 #include "core/PlayerController.h"
 
 #include "app/strings.h"
+#include "core/ResumeStore.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileInfo>
+#include <QStandardPaths>
+#include <QVariantMap>
 
 #include <stdexcept>
 
@@ -20,6 +25,58 @@ bool toBool(void* data) {
 }
 double toDouble(void* data) {
     return *static_cast<double*>(data);
+}
+
+// 单调时钟，避免系统时间被调整时算出负数。
+QElapsedTimer& seekClock() {
+    static QElapsedTimer t = [] {
+        QElapsedTimer x;
+        x.start();
+        return x;
+    }();
+    return t;
+}
+bool seekLogEnabled() {
+    static const bool on = !qgetenv("MD_LOG_SEEK").isEmpty();
+    return on;
+}
+
+// mpv 上游已不再随发行版提供 qthelper.hpp，这里自带最小的 node -> QVariant 转换。
+QVariant nodeToVariant(const mpv_node* node) {
+    switch (node->format) {
+    case MPV_FORMAT_STRING:
+        return QString::fromUtf8(node->u.string);
+    case MPV_FORMAT_FLAG:
+        return node->u.flag != 0;
+    case MPV_FORMAT_INT64:
+        return static_cast<qint64>(node->u.int64);
+    case MPV_FORMAT_DOUBLE:
+        return node->u.double_;
+    case MPV_FORMAT_NODE_ARRAY: {
+        QVariantList list;
+        for (int i = 0; i < node->u.list->num; i++)
+            list.append(nodeToVariant(&node->u.list->values[i]));
+        return list;
+    }
+    case MPV_FORMAT_NODE_MAP: {
+        QVariantMap map;
+        for (int i = 0; i < node->u.list->num; i++)
+            map.insert(QString::fromUtf8(node->u.list->keys[i]), nodeToVariant(&node->u.list->values[i]));
+        return map;
+    }
+    default:
+        return {};
+    }
+}
+
+// 取一个属性并转成 QVariant；失败返回无效值。
+QVariant getPropertyVariant(mpv_handle* mpv, const char* name) {
+    mpv_node node;
+    if (mpv_get_property(mpv, name, MPV_FORMAT_NODE, &node) < 0)
+        return {};
+    const QVariant v = nodeToVariant(&node);
+    mpv_free_node_contents(&node);
+    return v;
 }
 } // namespace
 
@@ -75,12 +132,24 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
     observe("pause", MPV_FORMAT_FLAG);
     observe("media-title", MPV_FORMAT_STRING);
     observe("dwidth", MPV_FORMAT_INT64);
+    observe("volume", MPV_FORMAT_DOUBLE);
+    observe("mute", MPV_FORMAT_FLAG);
+    observe("chapter", MPV_FORMAT_INT64);
+    observe("chapter-list", MPV_FORMAT_NODE);
+    observe("track-list", MPV_FORMAT_NODE);
+    observe("aid", MPV_FORMAT_INT64);
+    observe("sid", MPV_FORMAT_INT64);
+
+    resume_ = new ResumeStore(this);
 
     connect(this, &PlayerController::mpvWokeUp, this, &PlayerController::drainEvents, Qt::QueuedConnection);
     mpv_set_wakeup_callback(mpv_, &PlayerController::onWakeup, this);
 }
 
 PlayerController::~PlayerController() {
+    rememberPosition(); // 退出时把当前位置写进断点记录
+    if (resume_)
+        resume_->save();
     if (g_instance == this)
         g_instance = nullptr;
     if (mpv_) {
@@ -112,12 +181,24 @@ void PlayerController::drainEvents() {
         case MPV_EVENT_PROPERTY_CHANGE:
             handlePropertyChange(static_cast<mpv_event_property*>(event->data));
             break;
-        case MPV_EVENT_FILE_LOADED:
+        case MPV_EVENT_FILE_LOADED: {
             if (!hasMedia_) {
                 hasMedia_ = true;
                 emit hasMediaChanged();
             }
+            refreshChapters();
+            refreshTracks();
+            // 有断点记录就问用户，不擅自跳转。
+            if (resume_ && !currentUri_.isEmpty()) {
+                const ResumeEntry e = resume_->lookup(currentUri_);
+                if (e.isValid()) {
+                    pendingResumePos_ = e.position;
+                    qInfo("发现断点记录: 位置=%.3f / 时长=%.3f，等待用户选择", e.position, e.duration);
+                    emit resumeAvailable(e.position, e.duration);
+                }
+            }
             break;
+        }
         case MPV_EVENT_END_FILE: {
             auto* ef = static_cast<mpv_event_end_file*>(event->data);
             if (ef->reason == MPV_END_FILE_REASON_ERROR)
@@ -146,6 +227,12 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
 
     if (name == QLatin1String("time-pos") && prop->format == MPV_FORMAT_DOUBLE) {
         position_ = toDouble(prop->data);
+        // seek 到位耗时：位置进入目标 ±1s 即认为画面已更新到位。
+        if (seekTarget_ >= 0.0 && qAbs(position_ - seekTarget_) < 1.0) {
+            qInfo("[seek] t=%lldms 到位 位置=%.3f  耗时=%lldms", seekClock().elapsed(), position_,
+                  seekClock().elapsed() - seekIssuedAtMs_);
+            seekTarget_ = -1.0;
+        }
         // 诊断用，默认关闭：MD_LOG_PROGRESS=1 时每跨过一整秒打一次点。
         static const bool logProgress = !qgetenv("MD_LOG_PROGRESS").isEmpty();
         if (logProgress) {
@@ -168,6 +255,25 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
     } else if (name == QLatin1String("media-title") && prop->format == MPV_FORMAT_STRING) {
         mediaTitle_ = QString::fromUtf8(*static_cast<char**>(prop->data));
         emit mediaTitleChanged();
+    } else if (name == QLatin1String("volume") && prop->format == MPV_FORMAT_DOUBLE) {
+        volume_ = toDouble(prop->data);
+        emit volumeChanged();
+    } else if (name == QLatin1String("mute") && prop->format == MPV_FORMAT_FLAG) {
+        muted_ = toBool(prop->data);
+        emit mutedChanged();
+    } else if (name == QLatin1String("chapter") && prop->format == MPV_FORMAT_INT64) {
+        chapter_ = static_cast<int>(*static_cast<int64_t*>(prop->data));
+        emit chapterChanged();
+    } else if (name == QLatin1String("chapter-list")) {
+        refreshChapters();
+    } else if (name == QLatin1String("track-list")) {
+        refreshTracks();
+    } else if (name == QLatin1String("aid") && prop->format == MPV_FORMAT_INT64) {
+        audioTrackId_ = *static_cast<int64_t*>(prop->data);
+        emit audioTrackIdChanged();
+    } else if (name == QLatin1String("sid") && prop->format == MPV_FORMAT_INT64) {
+        subtitleTrackId_ = *static_cast<int64_t*>(prop->data);
+        emit subtitleTrackIdChanged();
     } else if (name == QLatin1String("dwidth")) {
         // 拿到显示宽度即说明解码链已出画面参数，用于 T1 自检展示。
         char* w = mpv_get_property_string(mpv_, "dwidth");
@@ -214,6 +320,10 @@ void PlayerController::load(const QString& uri) {
         pendingUri_ = uri;
         return;
     }
+    rememberPosition(); // 切片前先把上一个文件的位置存下来
+    currentUri_ = uri;
+    pendingResumePos_ = 0.0;
+    emit currentUriChanged();
     const QByteArray raw = uri.toUtf8();
     const char* args[] = {"loadfile", raw.constData(), nullptr};
     if (const int rc = mpv_command(mpv_, args); rc < 0)
@@ -245,6 +355,7 @@ void PlayerController::seekDrag(double target) {
         return;
     const QByteArray t = QByteArray::number(target);
     const char* args[] = {"seek", t.constData(), "absolute+keyframes", nullptr};
+    noteSeekIssued(target, "absolute+keyframes");
     mpv_command(mpv_, args);
 }
 
@@ -254,7 +365,181 @@ void PlayerController::seekExact(double target) {
         return;
     const QByteArray t = QByteArray::number(target);
     const char* args[] = {"seek", t.constData(), "absolute+exact", nullptr};
+    noteSeekIssued(target, "absolute+exact");
     mpv_command(mpv_, args);
+}
+
+void PlayerController::setVolume(double volume) {
+    if (!mpv_)
+        return;
+    double clamped = qBound(0.0, volume, 130.0); // 上限与 baseline.conf 的 volume-max 一致
+    mpv_set_property(mpv_, "volume", MPV_FORMAT_DOUBLE, &clamped);
+}
+
+void PlayerController::setMuted(bool muted) {
+    if (!mpv_)
+        return;
+    int flag = muted ? 1 : 0;
+    mpv_set_property(mpv_, "mute", MPV_FORMAT_FLAG, &flag);
+}
+
+void PlayerController::setAudioTrack(qint64 id) {
+    if (!mpv_)
+        return;
+    int64_t v = id;
+    mpv_set_property(mpv_, "aid", MPV_FORMAT_INT64, &v);
+}
+
+void PlayerController::setSubtitleTrack(qint64 id) {
+    if (!mpv_)
+        return;
+    if (id < 0) { // 关闭字幕：sid 需要字符串 "no"，不能用负数
+        mpv_set_property_string(mpv_, "sid", "no");
+        return;
+    }
+    int64_t v = id;
+    mpv_set_property(mpv_, "sid", MPV_FORMAT_INT64, &v);
+}
+
+void PlayerController::jumpToChapter(int index) {
+    if (!mpv_ || index < 0 || index >= chapters_.size())
+        return;
+    int64_t v = index;
+    mpv_set_property(mpv_, "chapter", MPV_FORMAT_INT64, &v);
+}
+
+QString PlayerController::screenshotDir() {
+    // M1-PLAN T2 指定落 ~/Pictures/md-player/。
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    const QString dir = base + QStringLiteral("/md-player");
+    QDir().mkpath(dir);
+    return dir;
+}
+
+void PlayerController::screenshot(bool withSubtitles) {
+    if (!mpv_ || !hasMedia_)
+        return;
+
+    QString stem = QFileInfo(currentUri_).completeBaseName();
+    if (stem.isEmpty())
+        stem = QStringLiteral("screenshot");
+    const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
+    const QString suffix = withSubtitles ? QStringLiteral("subs") : QStringLiteral("clean");
+    const QString path = QStringLiteral("%1/%2_%3_%4.png").arg(screenshotDir(), stem, stamp, suffix);
+
+    // "subtitles" = 含字幕与 OSD；"video" = 纯画面（不含任何叠加）。
+    const QByteArray rawPath = path.toUtf8();
+    const char* args[] = {"screenshot-to-file", rawPath.constData(), withSubtitles ? "subtitles" : "video", nullptr};
+    if (const int rc = mpv_command(mpv_, args); rc < 0) {
+        emit errorOccurred(QString::fromUtf8(mpv_error_string(rc)));
+        return;
+    }
+    qInfo("截图已保存: %s", qUtf8Printable(path));
+    emit screenshotSaved(path, withSubtitles);
+}
+
+void PlayerController::refreshChapters() {
+    if (!mpv_)
+        return;
+    const QVariantList raw = getPropertyVariant(mpv_, "chapter-list").toList();
+    QVariantList out;
+    out.reserve(raw.size());
+    for (int i = 0; i < raw.size(); ++i) {
+        const QVariantMap m = raw.at(i).toMap();
+        QVariantMap e;
+        e[QStringLiteral("index")] = i;
+        e[QStringLiteral("time")] = m.value(QStringLiteral("time")).toDouble();
+        // 章节名可能缺省，降级为「章节 N」（ARCHITECTURE §bluray 的降级要求同理）。
+        const QString title = m.value(QStringLiteral("title")).toString();
+        e[QStringLiteral("title")] = title.isEmpty() ? QStringLiteral("章节 %1").arg(i + 1) : title;
+        out.append(e);
+    }
+    if (out != chapters_) {
+        chapters_ = out;
+        if (!qgetenv("MD_LOG_TRACKS").isEmpty()) {
+            qInfo("章节共 %lld 个:", static_cast<qint64>(out.size()));
+            for (const QVariant& c : out)
+                qInfo("  [%lld] %.3fs  %s", c.toMap()["index"].toLongLong(), c.toMap()["time"].toDouble(),
+                      qUtf8Printable(c.toMap()["title"].toString()));
+        }
+        emit chaptersChanged();
+    }
+}
+
+void PlayerController::refreshTracks() {
+    if (!mpv_)
+        return;
+    const QVariantList raw = getPropertyVariant(mpv_, "track-list").toList();
+    QVariantList audio;
+    QVariantList subs;
+    for (const QVariant& item : raw) {
+        const QVariantMap m = item.toMap();
+        const QString type = m.value(QStringLiteral("type")).toString();
+
+        QVariantMap e;
+        e[QStringLiteral("id")] = m.value(QStringLiteral("id")).toLongLong();
+        e[QStringLiteral("codec")] = m.value(QStringLiteral("codec")).toString();
+        e[QStringLiteral("lang")] = m.value(QStringLiteral("lang")).toString();
+        e[QStringLiteral("title")] = m.value(QStringLiteral("title")).toString();
+        e[QStringLiteral("selected")] = m.value(QStringLiteral("selected")).toBool();
+        e[QStringLiteral("channels")] = m.value(QStringLiteral("demux-channel-count")).toInt();
+
+        // 显示名：优先轨道标题，其次语言，最后编码，都没有就用编号。
+        QStringList parts;
+        if (!e[QStringLiteral("title")].toString().isEmpty())
+            parts << e[QStringLiteral("title")].toString();
+        if (!e[QStringLiteral("lang")].toString().isEmpty())
+            parts << e[QStringLiteral("lang")].toString();
+        if (!e[QStringLiteral("codec")].toString().isEmpty())
+            parts << e[QStringLiteral("codec")].toString();
+        e[QStringLiteral("label")] = parts.isEmpty() ? QStringLiteral("#%1").arg(e[QStringLiteral("id")].toLongLong())
+                                                     : parts.join(QStringLiteral(" · "));
+
+        if (type == QLatin1String("audio"))
+            audio.append(e);
+        else if (type == QLatin1String("sub"))
+            subs.append(e);
+    }
+    if (audio != audioTracks_ || subs != subtitleTracks_) {
+        audioTracks_ = audio;
+        subtitleTracks_ = subs;
+        if (!qgetenv("MD_LOG_TRACKS").isEmpty()) {
+            qInfo("音轨 %lld 条 / 字幕轨 %lld 条", static_cast<qint64>(audio.size()), static_cast<qint64>(subs.size()));
+            for (const QVariant& t : audio)
+                qInfo("  [音] id=%lld %s", t.toMap()["id"].toLongLong(), qUtf8Printable(t.toMap()["label"].toString()));
+            for (const QVariant& t : subs)
+                qInfo("  [字] id=%lld %s", t.toMap()["id"].toLongLong(), qUtf8Printable(t.toMap()["label"].toString()));
+        }
+        emit tracksChanged();
+    }
+}
+
+void PlayerController::noteSeekIssued(double target, const char* flags) {
+    if (!seekLogEnabled())
+        return;
+    seekIssuedAtMs_ = seekClock().elapsed();
+    seekTarget_ = target;
+    qInfo("[seek] t=%lldms 发出 %-18s 目标=%.3f", seekIssuedAtMs_, flags, target);
+}
+
+void PlayerController::rememberPosition() {
+    if (resume_ && !currentUri_.isEmpty() && position_ > 0.0)
+        resume_->remember(currentUri_, position_, duration_);
+}
+
+void PlayerController::resumeFromSaved() {
+    qInfo("用户选择：继续播放 (%.3f)", pendingResumePos_);
+    if (pendingResumePos_ > 0.0) {
+        seekExact(pendingResumePos_);
+        pendingResumePos_ = 0.0;
+    }
+}
+
+void PlayerController::discardSaved() {
+    qInfo("用户选择：从头播放，丢弃断点记录");
+    pendingResumePos_ = 0.0;
+    if (resume_ && !currentUri_.isEmpty())
+        resume_->forget(currentUri_);
 }
 
 } // namespace md::core

@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QString>
 #include <QUrl>
+#include <QVariantList>
 
 #include <mpv/client.h>
 
@@ -18,6 +19,15 @@ class PlayerController : public QObject {
     Q_PROPERTY(bool hasMedia READ hasMedia NOTIFY hasMediaChanged)
     Q_PROPERTY(QString mediaTitle READ mediaTitle NOTIFY mediaTitleChanged)
     Q_PROPERTY(QString videoInfo READ videoInfo NOTIFY videoInfoChanged)
+    Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
+    Q_PROPERTY(QVariantList chapters READ chapters NOTIFY chaptersChanged)
+    Q_PROPERTY(int chapter READ chapter NOTIFY chapterChanged)
+    Q_PROPERTY(QVariantList audioTracks READ audioTracks NOTIFY tracksChanged)
+    Q_PROPERTY(QVariantList subtitleTracks READ subtitleTracks NOTIFY tracksChanged)
+    Q_PROPERTY(qint64 audioTrackId READ audioTrackId NOTIFY audioTrackIdChanged)
+    Q_PROPERTY(qint64 subtitleTrackId READ subtitleTrackId NOTIFY subtitleTrackIdChanged)
+    Q_PROPERTY(QString currentUri READ currentUri NOTIFY currentUriChanged)
 
 public:
     explicit PlayerController(QObject* parent = nullptr);
@@ -32,6 +42,15 @@ public:
     bool hasMedia() const { return hasMedia_; }
     QString mediaTitle() const { return mediaTitle_; }
     QString videoInfo() const { return videoInfo_; }
+    double volume() const { return volume_; }
+    bool muted() const { return muted_; }
+    QVariantList chapters() const { return chapters_; }
+    int chapter() const { return chapter_; }
+    QVariantList audioTracks() const { return audioTracks_; }
+    QVariantList subtitleTracks() const { return subtitleTracks_; }
+    qint64 audioTrackId() const { return audioTrackId_; }
+    qint64 subtitleTrackId() const { return subtitleTrackId_; }
+    QString currentUri() const { return currentUri_; }
 
     // 播放定位符即 mpv URI（bd:// / dvd:// / sacd:// / 普通路径）。
     Q_INVOKABLE void load(const QString& uri);
@@ -45,6 +64,16 @@ public:
     // 深坑 #2：拖动中贴关键帧即时出画，松手落精确点。T2 接进度条时使用。
     Q_INVOKABLE void seekDrag(double target);
     Q_INVOKABLE void seekExact(double target);
+    Q_INVOKABLE void setVolume(double volume);
+    Q_INVOKABLE void setMuted(bool muted);
+    Q_INVOKABLE void setAudioTrack(qint64 id);
+    Q_INVOKABLE void setSubtitleTrack(qint64 id); // id < 0 表示关闭字幕
+    Q_INVOKABLE void jumpToChapter(int index);
+    // withSubtitles=true 用 "subtitles"（含字幕），false 用 "video"（纯画面）。
+    Q_INVOKABLE void screenshot(bool withSubtitles);
+    // 断点续播：QML 询问用户后调用其一。
+    Q_INVOKABLE void resumeFromSaved();
+    Q_INVOKABLE void discardSaved();
 
 signals:
     void positionChanged();
@@ -53,6 +82,17 @@ signals:
     void hasMediaChanged();
     void mediaTitleChanged();
     void videoInfoChanged();
+    void volumeChanged();
+    void mutedChanged();
+    void chaptersChanged();
+    void chapterChanged();
+    void tracksChanged();
+    void audioTrackIdChanged();
+    void subtitleTrackIdChanged();
+    void currentUriChanged();
+    // 载入的文件有可续播记录时发出，QML 弹询问框。
+    void resumeAvailable(double position, double duration);
+    void screenshotSaved(const QString& path, bool withSubtitles);
     void mpvWokeUp(); // 内部：把 mpv 线程的唤醒转到 GUI 线程
     void errorOccurred(const QString& message);
 
@@ -64,9 +104,21 @@ private:
     void observe(const char* name, mpv_format format);
     void handlePropertyChange(mpv_event_property* prop);
     static QString locateBaselineConf();
+    void refreshChapters();
+    void refreshTracks();
+    void rememberPosition();
+    static QString screenshotDir();
+    void noteSeekIssued(double target, const char* flags);
 
     mpv_handle* mpv_ = nullptr;
+    class ResumeStore* resume_ = nullptr;
+    QString currentUri_;
     QString pendingUri_;
+    double pendingResumePos_ = 0.0;
+    // seek 手感埋点（MD_LOG_SEEK=1 时启用）：记录最近一次 seek 的发出时刻与目标，
+    // 待 time-pos 追上目标时算出「命令 -> 画面位置更新」的耗时。
+    qint64 seekIssuedAtMs_ = 0;
+    double seekTarget_ = -1.0;
     bool renderReady_ = false;
     double position_ = 0.0;
     double duration_ = 0.0;
@@ -74,6 +126,14 @@ private:
     bool hasMedia_ = false;
     QString mediaTitle_;
     QString videoInfo_;
+    double volume_ = 100.0;
+    bool muted_ = false;
+    QVariantList chapters_;
+    int chapter_ = -1;
+    QVariantList audioTracks_;
+    QVariantList subtitleTracks_;
+    qint64 audioTrackId_ = -1;
+    qint64 subtitleTrackId_ = -1;
 };
 
 // 进程内唯一实例（main 中构造后设置），供 MpvObject 取用。

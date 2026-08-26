@@ -76,7 +76,20 @@ CMake 会自动优先使用 `third_party/prefix`，无需手动设 `PKG_CONFIG_P
 ./build/md-player <路径>          # 直接打开
 ```
 
-快捷键：`空格` 暂停 · `←` / `→` ±5 秒 · `Ctrl+←` / `Ctrl+→` ±60 秒
+快捷键：
+
+| 键 | 作用 |
+|---|---|
+| `空格` | 暂停 / 继续 |
+| `←` / `→` | ±5 秒 |
+| `Ctrl+←` / `Ctrl+→` | ±60 秒 |
+| `↑` / `↓` | 音量 ±5 |
+| `m` | 静音 |
+| `s` / `Shift+S` | 截图（纯画面 / 含字幕） |
+
+进度条拖动时贴关键帧即时出画，松手落精确点（CLAUDE.md 深坑 #2）；章节以刻度显示在进度条上。
+截图落 `~/Pictures/md-player/`。断点续播记录在
+`~/Library/Application Support/MusicDisc/md-player/resume.json`。
 
 ### 测试素材
 
@@ -98,6 +111,8 @@ BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的�
 |---|---|
 | `MD_LOG_PROGRESS=1` | 按秒打印播放进度与暂停态变化 |
 | `MD_LOG_PROPS=1` | 打印全部 mpv 属性变更事件 |
+| `MD_LOG_SEEK=1` | 打印每次 seek 的标志、目标与「命令→画面到位」耗时 |
+| `MD_LOG_TRACKS=1` | 打印章节与音轨/字幕轨枚举结果 |
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
 
 ### 代码格式
