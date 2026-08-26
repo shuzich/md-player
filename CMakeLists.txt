@@ -37,7 +37,13 @@ endif()
 # ---------------------------------------------------------------------------
 # Qt 6
 # ---------------------------------------------------------------------------
-find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Quick QuickControls2)
+find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Quick QuickControls2 OpenGL)
+
+# libmpv 经 pkg-config 定位。third_party/prefix 已在上方前置到 PKG_CONFIG_PATH，
+# 故此处优先命中自编译版本（含 bd:// / dvd://，且不带 libdvdcss）。
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=2.0)
+message(STATUS "md-player: libmpv ${MPV_VERSION} <- ${MPV_LINK_LIBRARIES}")
 
 qt_standard_project_setup(REQUIRES 6.7)
 
@@ -47,6 +53,10 @@ qt_policy(SET QTP0004 NEW)
 qt_add_executable(md-player
     src/app/main.cpp
     src/app/strings.h
+    src/core/PlayerController.cpp
+    src/core/PlayerController.h
+    src/core/MpvObject.cpp
+    src/core/MpvObject.h
 )
 
 qt_add_qml_module(md-player
@@ -56,10 +66,17 @@ qt_add_qml_module(md-player
         src/ui/Main.qml
 )
 
-target_include_directories(md-player PRIVATE "${CMAKE_SOURCE_DIR}/src")
+# src 供 "core/PlayerController.h" 这类带目录前缀的引用；
+# src/core 供 qmltyperegistrar 生成的 <MpvObject.h> 裸文件名引用。
+target_include_directories(md-player PRIVATE
+    "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/src/core"
+)
 
 target_compile_definitions(md-player PRIVATE
     MD_PLAYER_VERSION="${PROJECT_VERSION}"
+    # 开发期从源码树读取 configs/mpv-baseline.conf；安装形态由 M2 打包时覆盖。
+    MD_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 target_link_libraries(md-player PRIVATE
@@ -67,6 +84,8 @@ target_link_libraries(md-player PRIVATE
     Qt6::Gui
     Qt6::Quick
     Qt6::QuickControls2
+    Qt6::OpenGL
+    PkgConfig::MPV
 )
 
 # 验收要求 `./build/md-player` 可直接运行：不打成 .app bundle，产物落在 build 根。

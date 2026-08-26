@@ -18,22 +18,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Qt 与构建工具走 Homebrew，与 CLAUDE.md「构建」一节保持同源。
-      - name: Install dependencies
+      # 只装构建工具与 libmpv 的编译期依赖。
+      # 注意：不装 Homebrew 的 mpv / libdvdread —— 前者缺 dvdnav，后者硬链 libdvdcss
+      # （docs/DECISIONS.md D-009 / D-011 / D-012）。播放栈一律来自 build-deps.sh。
+      - name: Install build tools
         run: |
           brew update
-          brew install qt cmake ninja pkg-config
+          brew install qt cmake ninja meson pkg-config libbluray ffmpeg libass libplacebo
 
-      # T0 的能力探测在 CI 也跑一遍，作为「系统 mpv 是否够用」的持续观测。
-      # 结论以本地 macOS 验收机为准，CI 缺 mpv 不视为失败。
-      - name: Probe mpv capabilities (informational)
-        continue-on-error: true
+      # 缓存自编译产物。key 含 build-deps.sh 内容 hash：脚本里的钉定 SHA 一变，
+      # key 就变，缓存自然失效并重建；否则命中缓存，build-deps.sh 靠戳记直接跳过。
+      - name: Cache self-built deps
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/prefix
+          key: deps-macos-14-${{ hashFiles('scripts/build-deps.sh') }}
+
+      - name: Build pinned deps (libdvdread / libdvdnav / libmpv)
+        run: ./scripts/build-deps.sh
+
+      # T1 验收证据：CI 链接的 libmpv 必须与本机同源，判据是 dvd:// 出现在探测输出中。
+      - name: Verify capabilities (dvd:// 必须可用)
         run: |
-          brew install mpv libbluray libdvdread || true
-          ./scripts/check-mpv-caps.sh
+          export PATH="$PWD/third_party/prefix/bin:$PATH"
+          export PKG_CONFIG_PATH="$PWD/third_party/prefix/lib/pkgconfig:$PKG_CONFIG_PATH"
+          ./scripts/check-mpv-caps.sh | tee caps.txt
+          grep -q '^\[OK\]   dvd://' caps.txt \
+            || { echo "::error::CI 的 libmpv 缺少 dvd://，与本机不同源"; exit 1; }
+          grep -q '^\[OK\]   bd://'  caps.txt \
+            || { echo "::error::CI 的 libmpv 缺少 bd://"; exit 1; }
+          echo "缓存命中: ${{ steps.deps-cache.outputs.cache-hit || 'false' }}"
 
       - name: Configure
         run: |
+          export PKG_CONFIG_PATH="$PWD/third_party/prefix/lib/pkgconfig:$PKG_CONFIG_PATH"
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_PREFIX_PATH="$(brew --prefix qt)"
@@ -41,5 +60,13 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      - name: Show artifact
-        run: ls -l build/md-player
+      # 校验最终产物确实链到自编译 libmpv，且闭包内无解密库（铁律 #2 / D-012）。
+      - name: Verify linkage
+        run: |
+          otool -L build/md-player | grep -q 'third_party/prefix/lib/libmpv' \
+            || { echo "::error::md-player 未链接到自编译 libmpv"; otool -L build/md-player; exit 1; }
+          if otool -L build/md-player | grep -qiE 'dvdcss|aacs|bdplus'; then
+            echo "::error::产物依赖中出现解密库"; otool -L build/md-player; exit 1
+          fi
+          echo "✓ 链接自编译 libmpv，且无解密库"
+          ls -l build/md-player
