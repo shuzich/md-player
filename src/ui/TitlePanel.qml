@@ -1,6 +1,8 @@
-// 标题·章节面板（M1-PLAN T3）。左侧抽屉，列出碟内全部 playlist——
-// 演唱会碟常把曲目组拆成多个短 playlist，所以这里不做时长过滤，全部展示，
-// 只给主标题加徽标并默认展开（ARCHITECTURE §bluray）。
+// 标题·章节面板（M1-PLAN T3）。左侧抽屉，列出碟内 playlist——
+// 演唱会碟常把曲目组拆成多个短 playlist，所以不按时长排序也不做内容过滤，
+// 只给主标题加徽标并默认展开（ARCHITECTURE §bluray、D-014）。
+// 唯一的过滤是「隐藏 10 秒以下条目」开关（D-019），它只影响显示，
+// BlurayController.playlists 始终保有碟内完整结构。
 import QtQuick
 import QtQuick.Controls
 
@@ -37,7 +39,7 @@ Drawer {
     Item {
         id: header
         anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
-        height: 52
+        height: 82
 
         Text {
             id: nameText
@@ -49,14 +51,51 @@ Drawer {
             elide: Text.ElideRight
         }
         Text {
+            id: countText
             anchors { left: parent.left; right: parent.right; top: nameText.bottom; topMargin: 4 }
             text: qsTr("%1 条标题").arg(root.disc.playlists.length)
+                  + (root.disc.hiddenCount > 0 ? qsTr("（隐藏 %1 条）").arg(root.disc.hiddenCount) : "")
                   + (root.disc.mainTitleIndex >= 0
                      ? qsTr("　·　主标题 %1").arg(root.disc.playlists[root.disc.mainTitleIndex].mpls)
                      : "")
             color: "#7a7a85"
             font.pixelSize: 11
             elide: Text.ElideRight
+        }
+        // 手搓的复选框，不用 Controls 的 CheckBox：macOS 上默认是原生样式，
+        // 不接受 contentItem/indicator 定制（运行期直接警告并忽略），颜色也压不下来。
+        // 顺带绕开焦点问题——纯 Item + TapHandler 不会把 activeFocus 吸进 Popup（D-018）。
+        Row {
+            id: shortFilter
+            anchors { left: parent.left; bottom: parent.bottom; bottomMargin: 7 }
+            spacing: 7
+            readonly property bool checked: root.disc.hideShortTitles
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 13
+                height: 13
+                radius: 3
+                color: shortFilter.checked ? "#5548a0ff" : "transparent"
+                border.width: 1
+                border.color: shortFilter.checked ? "#7a9fe0" : "#55ffffff"
+                Text {
+                    anchors.centerIn: parent
+                    visible: shortFilter.checked
+                    text: "✓"
+                    color: "#eaf2ff"
+                    font.pixelSize: 10
+                }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("隐藏 10 秒以下条目")
+                color: filterHover.hovered ? "#c4c4d0" : "#9a9aa6"
+                font.pixelSize: 11
+            }
+
+            HoverHandler { id: filterHover }
+            TapHandler { onTapped: root.disc.hideShortTitles = !shortFilter.checked }
         }
         Rectangle {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -74,12 +113,16 @@ Drawer {
         }
         clip: true
         spacing: 4
-        model: root.disc.playlists
+        model: root.disc.visiblePlaylists
         ScrollBar.vertical: ScrollBar {}
 
+        // 模型是过滤后的列表，下标与 disc.currentIndex（碟内原始下标）不是一回事，必须映射。
         function revealCurrent() {
-            if (root.disc.currentIndex >= 0)
-                positionViewAtIndex(root.disc.currentIndex, ListView.Contain)
+            for (var i = 0; i < model.length; i++)
+                if (model[i].index === root.disc.currentIndex) {
+                    positionViewAtIndex(i, ListView.Contain)
+                    return
+                }
         }
 
         delegate: Column {
@@ -89,7 +132,9 @@ Drawer {
             width: list.width - 12
             spacing: 0
 
-            readonly property bool isCurrent: entry.index === root.disc.currentIndex
+            // 注意用 modelData.index（碟内原始下标），不是 entry.index（过滤后列表的位置）。
+            readonly property int discIndex: entry.modelData.index
+            readonly property bool isCurrent: entry.discIndex === root.disc.currentIndex
             property bool expanded: entry.modelData.isMainTitle // 主标题默认展开
 
             Rectangle {
@@ -99,7 +144,7 @@ Drawer {
                 color: entry.isCurrent ? "#3348a0ff" : (rowHover.hovered ? "#1affffff" : "transparent")
 
                 HoverHandler { id: rowHover }
-                TapHandler { onTapped: root.disc.playIndex(entry.index) }
+                TapHandler { onTapped: root.disc.playIndex(entry.discIndex) }
 
                 Row {
                     anchors { fill: parent; leftMargin: 10; rightMargin: 6 }
@@ -182,7 +227,7 @@ Drawer {
                         color: chHover.hovered ? "#14ffffff" : "transparent"
 
                         HoverHandler { id: chHover }
-                        TapHandler { onTapped: root.disc.playChapter(entry.index, chapterRow.modelData.number) }
+                        TapHandler { onTapped: root.disc.playChapter(entry.discIndex, chapterRow.modelData.number) }
 
                         Text {
                             id: chNumber

@@ -5,11 +5,19 @@
 
 #include <QDebug>
 #include <QFileInfo>
+#include <QSettings>
 #include <QVariantMap>
+
+#include <utility>
 
 namespace md::media::bluray {
 
 namespace {
+
+// 低于此时长的 playlist 视为占位项（UHD 原盘常见的 5 秒空壳）。
+constexpr double kShortTitleSeconds = 10.0;
+constexpr auto kSettingHideShort = "ui/hideShortTitles";
+constexpr auto kSettingTitleHint = "ui/titleHintShown";
 
 QString formatDuration(double seconds) {
     const int total = static_cast<int>(seconds + 0.5);
@@ -59,7 +67,40 @@ QVariantList chaptersToVariant(const PlaylistInfo& p) {
 
 BlurayController::BlurayController(md::core::PlayerController* player, QObject* parent)
     : QObject(parent), player_(player) {
+    hideShortTitles_ = QSettings().value(QString::fromLatin1(kSettingHideShort), true).toBool();
     qInfo("%s", qUtf8Printable(runtimeCapabilities()));
+}
+
+void BlurayController::setHideShortTitles(bool hide) {
+    if (hideShortTitles_ == hide)
+        return;
+    hideShortTitles_ = hide;
+    QSettings().setValue(QString::fromLatin1(kSettingHideShort), hide);
+    emit hideShortTitlesChanged();
+    rebuildVisibleModel();
+    emit visibleChanged();
+}
+
+bool BlurayController::takeTitleHint() {
+    QSettings settings;
+    if (settings.value(QString::fromLatin1(kSettingTitleHint), false).toBool())
+        return false;
+    settings.setValue(QString::fromLatin1(kSettingTitleHint), true);
+    return true;
+}
+
+// 只隐藏不删除：playlists_ 保留完整结构，这里只挑出要显示的那些（D-019）。
+// 主标题与正在播放的那条永不隐藏——否则用户会看到一个「当前播放的标题不在列表里」的怪状态。
+void BlurayController::rebuildVisibleModel() {
+    visible_.clear();
+    for (const QVariant& v : std::as_const(playlists_)) {
+        const QVariantMap m = v.toMap();
+        const int idx = m.value(QStringLiteral("index")).toInt();
+        const bool keep = !hideShortTitles_ || m.value(QStringLiteral("duration")).toDouble() >= kShortTitleSeconds ||
+                          m.value(QStringLiteral("isMainTitle")).toBool() || idx == currentIndex_;
+        if (keep)
+            visible_.append(v);
+    }
 }
 
 void BlurayController::rebuildPlaylistModel() {
@@ -78,6 +119,7 @@ void BlurayController::rebuildPlaylistModel() {
         m[QStringLiteral("chapters")] = chaptersToVariant(p);
         playlists_.append(m);
     }
+    rebuildVisibleModel();
 }
 
 bool BlurayController::openUrl(const QUrl& url) {
@@ -114,9 +156,10 @@ bool BlurayController::openPath(const QString& path) {
     }
 
     disc_ = std::move(info);
-    rebuildPlaylistModel();
     currentIndex_ = -1;
+    rebuildPlaylistModel();
     emit discChanged();
+    emit visibleChanged();
     emit currentIndexChanged();
 
     int named = 0;
@@ -126,9 +169,11 @@ bool BlurayController::openPath(const QString& path) {
                 ++named;
     const QString mainSummary =
         disc_.mainTitleIndex >= 0 ? describe(disc_.playlists.at(disc_.mainTitleIndex)) : QStringLiteral("(无)");
-    qInfo("蓝光碟已打开: %s | 碟名=%s | playlist=%d 条 | 主标题=#%d [%s] | 章节名=%d 条 | BD-J=%d",
+    qInfo("蓝光碟已打开: %s | 碟名=%s | playlist=%d 条（列表显示 %d 条，隐藏 %d 条短标题）| 主标题=#%d [%s] | "
+          "章节名=%d 条 | BD-J=%d",
           qUtf8Printable(disc_.rootPath), qUtf8Printable(disc_.discName), int(disc_.playlists.size()),
-          disc_.mainTitleIndex, qUtf8Printable(mainSummary), named, int(disc_.bdjDetected));
+          int(visible_.size()), hiddenCount(), disc_.mainTitleIndex, qUtf8Printable(mainSummary), named,
+          int(disc_.bdjDetected));
 
     // 打开即播主标题：这是最常见的意图，完整列表仍在面板里随时可换。
     if (disc_.mainTitleIndex >= 0)
@@ -155,14 +200,19 @@ void BlurayController::playChapter(int index, int chapterNumber) {
     if (currentIndex_ != index) {
         currentIndex_ = index;
         emit currentIndexChanged();
+        // 当前播放项永不隐藏，切到一条被隐藏的短标题时列表要把它补回来。
+        rebuildVisibleModel();
+        emit visibleChanged();
     }
 }
 
 void BlurayController::closeDisc() {
     disc_ = DiscInfo{};
     playlists_.clear();
+    visible_.clear();
     currentIndex_ = -1;
     emit discChanged();
+    emit visibleChanged();
     emit currentIndexChanged();
 }
 

@@ -350,6 +350,7 @@ void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int
                           .arg(QFileInfo(deviceRoot).completeBaseName())
                           .arg(playlistId, 5, 10, QLatin1Char('0'));
     const QString uri = QStringLiteral("bd://mpls/%1").arg(playlistId);
+    qInfo("蓝光播放: %s | playlist=%d | 起始章节=%d", qUtf8Printable(deviceRoot), playlistId, startChapter);
     loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
 }
 

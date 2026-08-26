@@ -67,6 +67,8 @@ cmake --build build
 4. **加密盘检测**：libbluray `bd_get_disc_info()` → `aacs_detected && !aacs_handled` 即报加密盘；DVD 侧 IFO 打不开或读扇区出现 CSS 加扰迹象 → 同样报错。不做任何绕过尝试。
 5. **SACD 电平**：DSF 经 ffmpeg 解为 PCM 后比 foobar2000 + SACD 插件低约 6dB。播放 SACD 时默认 +6dB 增益，设置页可关。
 6. **测试碟不入库**：真实碟资源通过环境变量 `MD_TEST_MEDIA` 指向本地目录；`tests/fixtures` 只放自造的最小结构骨架（空 mpls / ifo 壳），绝不放任何版权内容。
+7. **Qt Quick Popup 的焦点陷阱**：Popup（含 Drawer/Dialog）设 `focus: true` 后，`QQuickPopupItem` 会成为窗口的 `activeFocusItem`，此后**所有 `Qt.WindowShortcut` 快捷键静默失效**——`enabled` 仍是 `true`，就是不触发，没有任何报错。本项目所有覆盖在播放画面上的 Popup 一律 `focus: false`，Esc 关闭改由窗口级 `Shortcut` 承担；面板内部的 Controls 控件还须显式 `focusPolicy: Qt.NoFocus`，否则点一下控件同样会把焦点吸进 Popup。详见 D-018。
+8. **交互验证前先确保环境干净**：跑任何 UI 验证之前必须先清 `resume.json`（断点记录）、`pkill md-player` 确认没有残留进程、确认没有模态框开着。曾经因为遗留断点记录让模态续播框一直开着，把「模态框挡住点击 + 按住快捷键失效」整整误判成播控条与快捷键功能回归，白查了十几轮。**现象不对先怀疑环境，再怀疑代码。**
 
 ## 与产品侧的关系
 

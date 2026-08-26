@@ -98,10 +98,13 @@ ApplicationWindow {
         target: Bluray
         // 加密盘 / 损坏盘等走的都是这条，文案统一在 strings.h。
         function onErrorOccurred(msg) { toast.show(msg) }
+        // 打开碟只播主标题，不自动弹面板（D-020）——面板会遮住画面，而绝大多数
+        // 场景用户就是要看主标题。入口保留两个：播控条的 ☰ 按钮、快捷键 T。
         function onDiscChanged() {
             if (Bluray.discOpen) {
                 toast.show(qsTr("已载入蓝光碟：%1（%2 条标题）").arg(Bluray.discName).arg(Bluray.playlists.length))
-                titlePanel.open()
+                if (Bluray.takeTitleHint())
+                    titleHint.restart()
             }
         }
     }
@@ -169,6 +172,12 @@ ApplicationWindow {
             elide: Text.ElideMiddle
         }
         Timer { id: toastTimer; interval: 3200; onTriggered: toast.opacity = 0 }
+        // 一次性上手提示。等上一条「已载入蓝光碟」淡出后再出，免得两条提示打架。
+        Timer {
+            id: titleHint
+            interval: 3600
+            onTriggered: toast.show(qsTr("按 T 选择标题 / 章节"))
+        }
     }
 
     DropArea {
