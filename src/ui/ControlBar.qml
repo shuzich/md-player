@@ -9,6 +9,10 @@ Rectangle {
     property alias seekBar: seek
 
     signal requestScreenshot(bool withSubtitles)
+    signal requestTitlePanel()
+
+    // 碟类资源才有标题面板可开。
+    property bool hasTitles: false
 
     implicitHeight: 78
     color: "#e6101014"
@@ -38,6 +42,17 @@ Rectangle {
             width: parent.width
             height: 34
             spacing: 10
+
+            // 标题·章节面板开关（只在碟类资源上出现）
+            ToolButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.hasTitles
+                text: "☰"
+                font.pixelSize: 16
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("标题与章节 (T)")
+                onClicked: root.requestTitlePanel()
+            }
 
             // 播放 / 暂停
             ToolButton {

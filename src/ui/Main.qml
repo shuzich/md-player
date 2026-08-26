@@ -51,7 +51,16 @@ ApplicationWindow {
         Behavior on opacity { NumberAnimation { duration: 160 } }
 
         property bool shouldShow: true
+        hasTitles: Bluray.discOpen
         onRequestScreenshot: function(withSubs) { Player.screenshot(withSubs) }
+        onRequestTitlePanel: titlePanel.visible ? titlePanel.close() : titlePanel.open()
+    }
+
+    // 标题·章节面板（T3）。非模态，开着也不影响播控与快捷键。
+    TitlePanel {
+        id: titlePanel
+        disc: Bluray
+        fmt: controls.fmt
     }
 
     Timer {
@@ -82,6 +91,18 @@ ApplicationWindow {
             toast.show((withSubs ? "已截图（含字幕）：" : "已截图（纯画面）：") + path)
         }
         function onErrorOccurred(msg) { toast.show("错误：" + msg) }
+    }
+
+    Connections {
+        target: Bluray
+        // 加密盘 / 损坏盘等走的都是这条，文案统一在 strings.h。
+        function onErrorOccurred(msg) { toast.show(msg) }
+        function onDiscChanged() {
+            if (Bluray.discOpen) {
+                toast.show(qsTr("已载入蓝光碟：%1（%2 条标题）").arg(Bluray.discName).arg(Bluray.playlists.length))
+                titlePanel.open()
+            }
+        }
     }
 
     Dialog {
@@ -131,7 +152,12 @@ ApplicationWindow {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 180 } }
 
-        function show(text) { label.text = text; opacity = 1; toastTimer.restart() }
+        function show(text) {
+            label.text = text
+            opacity = 1
+            toastTimer.restart()
+            if (Player.uiLogEnabled) console.log("[TOAST] " + text)
+        }
 
         Text {
             id: label
@@ -147,7 +173,11 @@ ApplicationWindow {
     DropArea {
         anchors.fill: parent
         onDropped: function(drop) {
-            if (drop.hasUrls && drop.urls.length > 0)
+            if (!drop.hasUrls || drop.urls.length === 0)
+                return
+            // 先给蓝光模块认领；它不认（普通文件、DVD、SACD）再退回直通 mpv。
+            // T5 会把这里换成统一路由入口。
+            if (!Bluray.openUrl(drop.urls[0]))
                 Player.loadUrl(drop.urls[0])
         }
     }
@@ -163,6 +193,8 @@ ApplicationWindow {
     Shortcut { sequence: "m"; enabled: !resumeDialog.opened; onActivated: Player.setMuted(!Player.muted) }
     Shortcut { sequence: "s"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(false) }
     Shortcut { sequence: "Shift+S"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(true) }
+    Shortcut { sequence: "t"; enabled: !resumeDialog.opened && Bluray.discOpen
+               onActivated: titlePanel.visible ? titlePanel.close() : titlePanel.open() }
     Shortcut { sequence: StandardKey.FullScreen
                onActivated: root.visibility = (root.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen) }
 }

@@ -45,6 +45,11 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(MPV REQUIRED IMPORTED_TARGET mpv>=2.0)
 message(STATUS "md-player: libmpv ${MPV_VERSION} <- ${MPV_LINK_LIBRARIES}")
 
+# libbluray：CLAUDE.md 要求 >= 1.4；1.5 才有的章节名与 HDR 字段在 BlurayDisc.cpp 里
+# 用 bd_get_version() 做运行时探测，故这里只卡最低版本，不硬性要求 1.5。
+pkg_check_modules(BLURAY REQUIRED IMPORTED_TARGET libbluray>=1.4)
+message(STATUS "md-player: libbluray ${BLURAY_VERSION} <- ${BLURAY_LINK_LIBRARIES}")
+
 qt_standard_project_setup(REQUIRES 6.7)
 
 # QML 源码放在 src/ui/ 子目录，需显式采用新策略，否则 Qt 要求每个子目录自带 qmldir。
@@ -59,6 +64,10 @@ qt_add_executable(md-player
     src/core/MpvObject.h
     src/core/ResumeStore.cpp
     src/core/ResumeStore.h
+    src/media/bluray/BlurayDisc.cpp
+    src/media/bluray/BlurayDisc.h
+    src/media/bluray/BlurayController.cpp
+    src/media/bluray/BlurayController.h
 )
 
 qt_add_qml_module(md-player
@@ -68,6 +77,7 @@ qt_add_qml_module(md-player
         src/ui/Main.qml
         src/ui/SeekBar.qml
         src/ui/ControlBar.qml
+        src/ui/TitlePanel.qml
 )
 
 # src 供 "core/PlayerController.h" 这类带目录前缀的引用；
@@ -90,6 +100,7 @@ target_link_libraries(md-player PRIVATE
     Qt6::QuickControls2
     Qt6::OpenGL
     PkgConfig::MPV
+    PkgConfig::BLURAY
 )
 
 # 验收要求 `./build/md-player` 可直接运行：不打成 .app bundle，产物落在 build 根。

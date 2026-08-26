@@ -74,7 +74,14 @@ CMake 会自动优先使用 `third_party/prefix`，无需手动设 `PKG_CONFIG_P
 ```bash
 ./build/md-player                 # 空窗口，拖入文件或文件夹
 ./build/md-player <路径>          # 直接打开
+./build/md-player /path/to/BDMV上级目录   # 蓝光文件夹
+./build/md-player /path/to/disc.iso       # 蓝光 ISO（无需先挂载）
 ```
+
+蓝光资源打开后自动播主标题（时长最长优先，并列取章节多者），并弹出左侧
+**标题·章节面板**：列出碟内全部 playlist（演唱会碟常按曲目组分多条，故不做时长过滤），
+主标题带徽标且默认展开章节。按 `T` 或播控条上的 `☰` 开关面板。
+碟内未提供章节名时降级为「第 N 章」。
 
 快捷键：
 
@@ -86,6 +93,7 @@ CMake 会自动优先使用 `third_party/prefix`，无需手动设 `PKG_CONFIG_P
 | `↑` / `↓` | 音量 ±5 |
 | `m` | 静音 |
 | `s` / `Shift+S` | 截图（纯画面 / 含字幕） |
+| `t` | 标题·章节面板（碟类资源） |
 
 进度条拖动时贴关键帧即时出画，松手落精确点（CLAUDE.md 深坑 #2）；章节以刻度显示在进度条上。
 截图落 `~/Pictures/md-player/`。断点续播记录在
@@ -102,8 +110,16 @@ export MD_TEST_MEDIA=/path/to/your/test-media
 ```
 
 该目录应含 4K 高码率 m2ts 与 mkv（T1 / T2 验收用），碟类样本（BDMV / VIDEO_TS /
-BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的最小结构骨架
-（空 mpls / ifo 壳），**绝不放任何版权内容**。
+BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的最小结构骨架，
+**绝不放任何版权内容**。
+
+错误路径不依赖真实碟片——用自造骨架覆盖（详见 `tests/fixtures/README.md`）：
+
+```bash
+python3 tests/fixtures/make_bd_skeleton.py tests/fixtures/generated/bd-aacs --aacs
+MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/bd-aacs
+# 期望: [TOAST] 不支持加密原盘，请使用已解密资源
+```
 
 ### 诊断日志
 
@@ -113,6 +129,7 @@ BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的�
 | `MD_LOG_PROPS=1` | 打印全部 mpv 属性变更事件 |
 | `MD_LOG_SEEK=1` | 打印每次 seek 的标志、目标与「命令→画面到位」耗时 |
 | `MD_LOG_TRACKS=1` | 打印章节与音轨/字幕轨枚举结果 |
+| `MD_LOG_UI=1` | 把提示条（toast）文案打到 stdout，用于无截屏权限时校验用户实际看到的文案 |
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
 
 ### 代码格式

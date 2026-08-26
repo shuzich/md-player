@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QVariantMap>
 
@@ -85,6 +86,11 @@ PlayerController* playerInstance() {
 }
 void setPlayerInstance(PlayerController* controller) {
     g_instance = controller;
+}
+
+bool PlayerController::uiLogEnabled() {
+    static const bool on = !qgetenv("MD_LOG_UI").isEmpty();
+    return on;
 }
 
 QString PlayerController::locateBaselineConf() {
@@ -189,8 +195,13 @@ void PlayerController::drainEvents() {
             refreshChapters();
             refreshTracks();
             // 有断点记录就问用户，不擅自跳转。
-            if (resume_ && !currentUri_.isEmpty()) {
-                const ResumeEntry e = resume_->lookup(currentUri_);
+            if (pendingChapter_ >= 1) {
+                // 用户点的是具体章节：直接跳，且不再弹断点询问。
+                int64_t target = pendingChapter_ - 1;
+                mpv_set_property(mpv_, "chapter", MPV_FORMAT_INT64, &target);
+                pendingChapter_ = -1;
+            } else if (resume_ && !resumeKey_.isEmpty()) {
+                const ResumeEntry e = resume_->lookup(resumeKey_);
                 if (e.isValid()) {
                     pendingResumePos_ = e.position;
                     qInfo("发现断点记录: 位置=%.3f / 时长=%.3f，等待用户选择", e.position, e.duration);
@@ -295,10 +306,12 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
 }
 
 void PlayerController::setPendingUri(const QString& uri) {
-    if (renderReady_)
+    if (renderReady_) {
         load(uri);
-    else
+    } else {
         pendingUri_ = uri;
+        pendingResumeKey_ = uri;
+    }
 }
 
 void PlayerController::notifyRenderReady() {
@@ -308,20 +321,45 @@ void PlayerController::notifyRenderReady() {
     qInfo("渲染上下文就绪");
     if (!pendingUri_.isEmpty()) {
         const QString uri = pendingUri_;
+        // 挂起期间存的可能是碟类资源的「碟根#URI」键，不能退回用 uri 本身当键，
+        // 否则不同碟的 mpls/1 会共用一条断点记录。
+        const QString key = pendingResumeKey_.isEmpty() ? uri : pendingResumeKey_;
         pendingUri_.clear();
-        load(uri);
+        pendingResumeKey_.clear();
+        loadInternal(uri, key);
     }
 }
 
 void PlayerController::load(const QString& uri) {
+    pendingChapter_ = -1;
+    loadInternal(uri, uri);
+}
+
+void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int startChapter) {
+    if (!mpv_ || deviceRoot.isEmpty() || playlistId < 0)
+        return;
+    // bluray-device 是全局选项，必须在 loadfile 之前设好；目录与 ISO 路径 libbluray 都能直接吃。
+    const QByteArray rawDevice = deviceRoot.toUtf8();
+    if (const int rc = mpv_set_property_string(mpv_, "bluray-device", rawDevice.constData()); rc < 0) {
+        emit errorOccurred(QString::fromUtf8(mpv_error_string(rc)));
+        return;
+    }
+    pendingChapter_ = startChapter;
+    const QString uri = QStringLiteral("bd://mpls/%1").arg(playlistId);
+    loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
+}
+
+void PlayerController::loadInternal(const QString& uri, const QString& resumeKey) {
     if (!mpv_ || uri.isEmpty())
         return;
     if (!renderReady_) { // 尚未就绪：挂起，等 notifyRenderReady 再发
         pendingUri_ = uri;
+        pendingResumeKey_ = resumeKey;
         return;
     }
     rememberPosition(); // 切片前先把上一个文件的位置存下来
     currentUri_ = uri;
+    resumeKey_ = resumeKey;
     pendingResumePos_ = 0.0;
     emit currentUriChanged();
     const QByteArray raw = uri.toUtf8();
@@ -420,7 +458,11 @@ void PlayerController::screenshot(bool withSubtitles) {
     if (!mpv_ || !hasMedia_)
         return;
 
-    QString stem = QFileInfo(currentUri_).completeBaseName();
+    // bd://mpls/1 这类 URI 的 basename 是「1」，毫无意义；碟类资源改用媒体标题。
+    QString stem =
+        currentUri_.contains(QStringLiteral("://")) ? mediaTitle_ : QFileInfo(currentUri_).completeBaseName();
+    stem.remove(QRegularExpression(QStringLiteral("[/\\\\:*?\"<>|]")));
+    stem = stem.trimmed();
     if (stem.isEmpty())
         stem = QStringLiteral("screenshot");
     const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
@@ -523,8 +565,8 @@ void PlayerController::noteSeekIssued(double target, const char* flags) {
 }
 
 void PlayerController::rememberPosition() {
-    if (resume_ && !currentUri_.isEmpty() && position_ > 0.0)
-        resume_->remember(currentUri_, position_, duration_);
+    if (resume_ && !resumeKey_.isEmpty() && position_ > 0.0)
+        resume_->remember(resumeKey_, position_, duration_);
 }
 
 void PlayerController::resumeFromSaved() {
@@ -538,8 +580,8 @@ void PlayerController::resumeFromSaved() {
 void PlayerController::discardSaved() {
     qInfo("用户选择：从头播放，丢弃断点记录");
     pendingResumePos_ = 0.0;
-    if (resume_ && !currentUri_.isEmpty())
-        resume_->forget(currentUri_);
+    if (resume_ && !resumeKey_.isEmpty())
+        resume_->forget(resumeKey_);
 }
 
 } // namespace md::core

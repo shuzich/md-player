@@ -1,5 +1,6 @@
 #include "app/strings.h"
 #include "core/PlayerController.h"
+#include "media/bluray/BlurayController.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -30,18 +31,24 @@ int main(int argc, char* argv[]) {
     md::core::PlayerController controller;
     md::core::setPlayerInstance(&controller);
 
+    md::media::bluray::BlurayController bluray(&controller);
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("Player"), &controller);
+    engine.rootContext()->setContextProperty(QStringLiteral("Bluray"), &bluray);
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
     engine.loadFromModule("MdPlayer", "Main");
 
     // 命令行传入的首个参数当作待播放资源（T5 的统一路由入口先留在此）。
+    // 蓝光先给蓝光模块，它不认再退回普通播放。
     // 用 setPendingUri 而非 load：此刻渲染上下文还没建立。
     const QStringList args = QGuiApplication::arguments();
-    if (args.size() > 1)
-        controller.setPendingUri(args.at(1));
+    if (args.size() > 1) {
+        if (!bluray.openPath(args.at(1)))
+            controller.setPendingUri(args.at(1));
+    }
 
     return QGuiApplication::exec();
 }

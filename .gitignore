@@ -69,3 +69,6 @@ testmedia/
 
 # ---- kickoff 归档（内容已展开到仓库）----
 md-player-kickoff.zip
+
+# ---- 测试骨架的生成产物（生成脚本入库，产物不入库）----
+tests/fixtures/generated/
