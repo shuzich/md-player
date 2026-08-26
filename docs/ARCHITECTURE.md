@@ -82,3 +82,5 @@
 - **M1**（docs/M1-PLAN.md）：四类资源打开 / 枚举 / 播放 / 丝滑 seek / 截图，macOS 验收；T8 铺 Windows 构建通道。
 - **M2 / P2**：虚拟菜单（指纹上行 MusicDisc、曲目与 Segment 跳转、离线缓存）、SACD 多声道、断点续播完善、Windows 首发打包、UI 引入 MusicDisc 深色玻璃拟态视觉。
 - **P3 评估项**（不承诺）：BD-J 真菜单兼容模式（libbluray + JVM）、原生 DSD / DoP 输出、HDR passthrough、进度条缩略图预览。
+
+产品愿景与模式划分见 [VISION.md](VISION.md)。
