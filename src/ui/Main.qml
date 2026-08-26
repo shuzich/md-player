@@ -93,9 +93,10 @@ ApplicationWindow {
         title: qsTr("继续播放？")
         closePolicy: Popup.CloseOnEscape  // Esc 等同「从头播放」
 
-        // 用自定义 footer 取代 standardButtons：standardButtons 的按钮拿不到焦点，
-        // 回车无法激活（窗口级 Shortcut 也被模态 Popup 的焦点抢占挡住）。
-        // 显式给「继续」按钮 focus，回车即可确认。顺带把按钮文案本地化。
+        // 用自定义 footer 取代 standardButtons，顺带把按钮文案本地化。
+        // 注意：下面这句 forceActiveFocus 并**没有**让回车生效——按钮拿到了焦点框，
+        // 但 Return 仍不激活它（物理键盘复现）。鼠标点击与 Esc 正常。见 issue #1，排期 T7。
+        // 排查前先打印 activeFocusItem 确认按键落点，别再盲试方案。
         onOpened: acceptButton.forceActiveFocus()
 
         footer: DialogButtonBox {
