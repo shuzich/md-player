@@ -48,6 +48,7 @@ message(STATUS "md-player: libmpv ${MPV_VERSION} <- ${MPV_LINK_LIBRARIES}")
 # libbluray：CLAUDE.md 要求 >= 1.4；1.5 才有的章节名与 HDR 字段在 BlurayDisc.cpp 里
 # 用 bd_get_version() 做运行时探测，故这里只卡最低版本，不硬性要求 1.5。
 pkg_check_modules(BLURAY REQUIRED IMPORTED_TARGET libbluray>=1.4)
+pkg_check_modules(DVDREAD REQUIRED IMPORTED_TARGET dvdread)
 message(STATUS "md-player: libbluray ${BLURAY_VERSION} <- ${BLURAY_LINK_LIBRARIES}")
 
 qt_standard_project_setup(REQUIRES 6.7)
@@ -64,9 +65,12 @@ qt_add_executable(md-player
     src/core/MpvObject.h
     src/core/ResumeStore.cpp
     src/core/ResumeStore.h
+    src/media/DiscModel.cpp
     src/media/bluray/BlurayDisc.cpp
     src/media/bluray/BlurayDisc.h
     src/media/bluray/BlurayController.cpp
+    src/media/dvd/DvdDisc.cpp
+    src/media/dvd/DvdController.cpp
     src/media/bluray/BlurayController.h
 )
 
@@ -101,6 +105,7 @@ target_link_libraries(md-player PRIVATE
     Qt6::OpenGL
     PkgConfig::MPV
     PkgConfig::BLURAY
+    PkgConfig::DVDREAD
 )
 
 # 验收要求 `./build/md-player` 可直接运行：不打成 .app bundle，产物落在 build 根。

@@ -9,7 +9,7 @@ import QtQuick.Controls
 Drawer {
     id: root
 
-    required property var disc // BlurayController
+    required property var disc // BlurayController 或 DvdController，鸭子类型对齐
     required property var fmt  // 时长格式化函数，复用 ControlBar 的实现
 
     edge: Qt.LeftEdge
@@ -56,7 +56,7 @@ Drawer {
             text: qsTr("%1 条标题").arg(root.disc.playlists.length)
                   + (root.disc.hiddenCount > 0 ? qsTr("（隐藏 %1 条）").arg(root.disc.hiddenCount) : "")
                   + (root.disc.mainTitleIndex >= 0
-                     ? qsTr("　·　主标题 %1").arg(root.disc.playlists[root.disc.mainTitleIndex].mpls)
+                     ? qsTr("　·　主标题 %1").arg(root.disc.playlists[root.disc.mainTitleIndex].titleLabel)
                      : "")
             color: "#7a7a85"
             font.pixelSize: 11
@@ -144,7 +144,17 @@ Drawer {
                 color: entry.isCurrent ? "#3348a0ff" : (rowHover.hovered ? "#1affffff" : "transparent")
 
                 HoverHandler { id: rowHover }
-                TapHandler { onTapped: root.disc.playIndex(entry.discIndex) }
+
+                // 点击区刻意避开右侧的展开箭头。两者重叠时两个 TapHandler 会一起触发，
+                // 结果是「点一下箭头，顺带把这条标题重新载入一遍」——蓝光上不明显，
+                // DVD 换 title 要好几秒，一眼就能看出来（实测发现）。
+                Item {
+                    anchors {
+                        left: parent.left; top: parent.top; bottom: parent.bottom; right: parent.right
+                        rightMargin: entry.modelData.chapterCount > 1 ? 32 : 0
+                    }
+                    TapHandler { onTapped: root.disc.playIndex(entry.discIndex) }
+                }
 
                 Row {
                     anchors { fill: parent; leftMargin: 10; rightMargin: 6 }
@@ -158,7 +168,7 @@ Drawer {
                         Row {
                             spacing: 6
                             Text {
-                                text: entry.modelData.mpls
+                                text: entry.modelData.titleLabel
                                 color: entry.isCurrent ? "#ffffff" : "#dcdce4"
                                 font.pixelSize: 13
                                 font.family: "Menlo"

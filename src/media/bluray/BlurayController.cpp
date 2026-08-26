@@ -2,10 +2,10 @@
 
 #include "app/strings.h"
 #include "core/PlayerController.h"
+#include "media/DiscModel.h"
 
 #include <QDebug>
 #include <QFileInfo>
-#include <QSettings>
 #include <QVariantMap>
 
 #include <utility>
@@ -13,19 +13,6 @@
 namespace md::media::bluray {
 
 namespace {
-
-// 低于此时长的 playlist 视为占位项（UHD 原盘常见的 5 秒空壳）。
-constexpr double kShortTitleSeconds = 10.0;
-constexpr auto kSettingHideShort = "ui/hideShortTitles";
-constexpr auto kSettingTitleHint = "ui/titleHintShown";
-
-QString formatDuration(double seconds) {
-    const int total = static_cast<int>(seconds + 0.5);
-    return QStringLiteral("%1:%2:%3")
-        .arg(total / 3600, 2, 10, QLatin1Char('0'))
-        .arg((total / 60) % 60, 2, 10, QLatin1Char('0'))
-        .arg(total % 60, 2, 10, QLatin1Char('0'));
-}
 
 // 「hevc 2160p · SDR · 3 音轨 · 2 字幕」这种一行摘要，面板里给用户看的。
 QString describe(const PlaylistInfo& p) {
@@ -67,7 +54,7 @@ QVariantList chaptersToVariant(const PlaylistInfo& p) {
 
 BlurayController::BlurayController(md::core::PlayerController* player, QObject* parent)
     : QObject(parent), player_(player) {
-    hideShortTitles_ = QSettings().value(QString::fromLatin1(kSettingHideShort), true).toBool();
+    hideShortTitles_ = md::media::hideShortTitlesSetting();
     qInfo("%s", qUtf8Printable(runtimeCapabilities()));
 }
 
@@ -75,32 +62,18 @@ void BlurayController::setHideShortTitles(bool hide) {
     if (hideShortTitles_ == hide)
         return;
     hideShortTitles_ = hide;
-    QSettings().setValue(QString::fromLatin1(kSettingHideShort), hide);
+    md::media::setHideShortTitlesSetting(hide);
     emit hideShortTitlesChanged();
     rebuildVisibleModel();
     emit visibleChanged();
 }
 
 bool BlurayController::takeTitleHint() {
-    QSettings settings;
-    if (settings.value(QString::fromLatin1(kSettingTitleHint), false).toBool())
-        return false;
-    settings.setValue(QString::fromLatin1(kSettingTitleHint), true);
-    return true;
+    return md::media::takeTitleHintSetting();
 }
 
-// 只隐藏不删除：playlists_ 保留完整结构，这里只挑出要显示的那些（D-019）。
-// 主标题与正在播放的那条永不隐藏——否则用户会看到一个「当前播放的标题不在列表里」的怪状态。
 void BlurayController::rebuildVisibleModel() {
-    visible_.clear();
-    for (const QVariant& v : std::as_const(playlists_)) {
-        const QVariantMap m = v.toMap();
-        const int idx = m.value(QStringLiteral("index")).toInt();
-        const bool keep = !hideShortTitles_ || m.value(QStringLiteral("duration")).toDouble() >= kShortTitleSeconds ||
-                          m.value(QStringLiteral("isMainTitle")).toBool() || idx == currentIndex_;
-        if (keep)
-            visible_.append(v);
-    }
+    visible_ = md::media::filterVisible(playlists_, hideShortTitles_, currentIndex_);
 }
 
 void BlurayController::rebuildPlaylistModel() {
@@ -110,9 +83,9 @@ void BlurayController::rebuildPlaylistModel() {
         QVariantMap m;
         m[QStringLiteral("index")] = i;
         m[QStringLiteral("playlistId")] = static_cast<int>(p.playlistId);
-        m[QStringLiteral("mpls")] = QStringLiteral("%1.mpls").arg(p.playlistId, 5, 10, QLatin1Char('0'));
+        m[QStringLiteral("titleLabel")] = QStringLiteral("%1.mpls").arg(p.playlistId, 5, 10, QLatin1Char('0'));
         m[QStringLiteral("duration")] = p.durationSeconds;
-        m[QStringLiteral("durationText")] = formatDuration(p.durationSeconds);
+        m[QStringLiteral("durationText")] = md::media::formatDuration(p.durationSeconds);
         m[QStringLiteral("chapterCount")] = p.chapters.size();
         m[QStringLiteral("summary")] = describe(p);
         m[QStringLiteral("isMainTitle")] = p.isMainTitle;

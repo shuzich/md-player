@@ -51,15 +51,20 @@ ApplicationWindow {
         Behavior on opacity { NumberAnimation { duration: 160 } }
 
         property bool shouldShow: true
-        hasTitles: Bluray.discOpen
+        hasTitles: root.activeDisc.discOpen
         onRequestScreenshot: function(withSubs) { Player.screenshot(withSubs) }
         onRequestTitlePanel: titlePanel.visible ? titlePanel.close() : titlePanel.open()
     }
 
-    // 标题·章节面板（T3）。非模态，开着也不影响播控与快捷键。
+    // 当前打开的碟。蓝光与 DVD 两个 Controller 的 QML 接口是对齐的（鸭子类型），
+    // 面板拿到哪一个都照常工作。两者都没开时退回 Bluray——它此时报 discOpen=false、
+    // 列表为空，绑定不会踩到 null。
+    readonly property var activeDisc: Bluray.discOpen ? Bluray : (Dvd.discOpen ? Dvd : Bluray)
+
+    // 标题·章节面板（T3 蓝光 / T4 DVD 共用）。非模态，开着也不影响播控与快捷键。
     TitlePanel {
         id: titlePanel
-        disc: Bluray
+        disc: root.activeDisc
         fmt: controls.fmt
     }
 
@@ -94,17 +99,33 @@ ApplicationWindow {
     }
 
 
+    // 打开碟只播主标题，不自动弹面板（D-020）——面板会遮住画面，而绝大多数
+    // 场景用户就是要看主标题。入口保留两个：播控条的 ☰ 按钮、快捷键 T。
+    function discOpened(kind, disc) {
+        toast.show(qsTr("已载入%1：%2（%3 条标题）").arg(kind).arg(disc.discName).arg(disc.playlists.length))
+        if (disc.takeTitleHint())
+            titleHint.restart()
+    }
+
     Connections {
         target: Bluray
         // 加密盘 / 损坏盘等走的都是这条，文案统一在 strings.h。
         function onErrorOccurred(msg) { toast.show(msg) }
-        // 打开碟只播主标题，不自动弹面板（D-020）——面板会遮住画面，而绝大多数
-        // 场景用户就是要看主标题。入口保留两个：播控条的 ☰ 按钮、快捷键 T。
         function onDiscChanged() {
             if (Bluray.discOpen) {
-                toast.show(qsTr("已载入蓝光碟：%1（%2 条标题）").arg(Bluray.discName).arg(Bluray.playlists.length))
-                if (Bluray.takeTitleHint())
-                    titleHint.restart()
+                Dvd.closeDisc()          // 一次只持有一张碟
+                root.discOpened(qsTr("蓝光碟"), Bluray)
+            }
+        }
+    }
+
+    Connections {
+        target: Dvd
+        function onErrorOccurred(msg) { toast.show(msg) }
+        function onDiscChanged() {
+            if (Dvd.discOpen) {
+                Bluray.closeDisc()
+                root.discOpened(qsTr("DVD"), Dvd)
             }
         }
     }
@@ -185,9 +206,9 @@ ApplicationWindow {
         onDropped: function(drop) {
             if (!drop.hasUrls || drop.urls.length === 0)
                 return
-            // 先给蓝光模块认领；它不认（普通文件、DVD、SACD）再退回直通 mpv。
+            // 蓝光 → DVD → 直通 mpv。前两个都是「不认就返回 false」。
             // T5 会把这里换成统一路由入口。
-            if (!Bluray.openUrl(drop.urls[0]))
+            if (!Bluray.openUrl(drop.urls[0]) && !Dvd.openUrl(drop.urls[0]))
                 Player.loadUrl(drop.urls[0])
         }
     }
@@ -203,7 +224,7 @@ ApplicationWindow {
     Shortcut { sequence: "m"; enabled: !resumeDialog.opened; onActivated: Player.setMuted(!Player.muted) }
     Shortcut { sequence: "s"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(false) }
     Shortcut { sequence: "Shift+S"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(true) }
-    Shortcut { sequence: "t"; enabled: !resumeDialog.opened && Bluray.discOpen
+    Shortcut { sequence: "t"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
                onActivated: titlePanel.opened ? titlePanel.close() : titlePanel.open() }
     // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。
     Shortcut { sequence: "Escape"; enabled: titlePanel.opened; onActivated: titlePanel.close() }

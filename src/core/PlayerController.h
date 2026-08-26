@@ -62,6 +62,9 @@ public:
     // startChapter >= 1 时载入后直接跳到该章节，并跳过断点询问——用户点的是具体章节，
     // 这就是明确意图，不该再弹框问续播。
     Q_INVOKABLE void loadBluray(const QString& deviceRoot, int playlistId, int startChapter = -1);
+    // DVD：先把 dvd-device 指到碟根（VIDEO_TS 的父目录或 ISO），再播 dvd://<N>。
+    // titleNumber 是 libdvdread 口径的 1 起编号，mpv 的 dvd:// 是 0 起，这里负责换算（D-021）。
+    Q_INVOKABLE void loadDvd(const QString& deviceRoot, int titleNumber, int startChapter = -1);
     // 渲染上下文就绪前收到的加载请求先挂起。mpv 在初始化视频输出时若没有
     // render context，会直接把视频链路关掉（表现为只出声音、dwidth 永远不可用）。
     void setPendingUri(const QString& uri);

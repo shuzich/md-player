@@ -74,16 +74,24 @@ CMake 会自动优先使用 `third_party/prefix`，无需手动设 `PKG_CONFIG_P
 ```bash
 ./build/md-player                 # 空窗口，拖入文件或文件夹
 ./build/md-player <路径>          # 直接打开
-./build/md-player /path/to/BDMV上级目录   # 蓝光文件夹
-./build/md-player /path/to/disc.iso       # 蓝光 ISO（无需先挂载）
+./build/md-player /path/to/BDMV上级目录       # 蓝光文件夹
+./build/md-player /path/to/disc.iso           # 蓝光 ISO（无需先挂载）
+./build/md-player /path/to/VIDEO_TS上级目录   # DVD 文件夹（拖 VIDEO_TS 本身也认）
+./build/md-player /path/to/dvd.iso            # DVD ISO（无需先挂载）
 ```
 
-蓝光资源打开后自动播主标题（时长最长优先，并列取章节多者），并弹出左侧
-**标题·章节面板**：列出碟内 playlist（演唱会碟常按曲目组分多条，故不按时长排序），
+分派顺序是蓝光 → DVD → 普通播放，前两个「不认就交还」，所以普通视频文件照常直通 mpv。
+
+碟类资源打开后自动播主标题（时长最长优先，并列取章节多者），标题与章节都在左侧
+**标题·章节面板**里（蓝光与 DVD 共用同一个面板）：列出碟内标题（演唱会碟常按曲目组分多条，故不按时长排序），
 主标题带徽标且默认展开章节。按 `T` 或播控条上的 `☰` 开关面板——**打开碟不会自动弹面板**，
 默认直接播主标题。面板顶部的「隐藏 10 秒以下条目」默认开启，用来滤掉 UHD 原盘的占位
 playlist；它只影响显示，碟内完整结构始终保留，主标题与正在播放的那条永不隐藏。
-碟内未提供章节名时降级为「第 N 章」。
+碟内未提供章节名时降级为「第 N 章」（DVD 的 IFO 结构里根本没有章节名这一项，一律显示编号）。
+
+**加密盘**：蓝光看 libbluray 的 `aacs_detected && !aacs_handled`；DVD 由应用层自检 VOB 扇区的
+PES 扰码位（D-022）。两者都给统一文案「不支持加密原盘，请使用已解密资源」，不做任何绕过尝试。
+本机即便装了 libdvdcss 也不受影响——自编译的 libdvdread 关掉了该选项，进程运行期不加载它。
 
 快捷键：
 
@@ -120,6 +128,9 @@ BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的�
 ```bash
 python3 tests/fixtures/make_bd_skeleton.py tests/fixtures/generated/bd-aacs --aacs
 MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/bd-aacs
+
+python3 tests/fixtures/make_dvd_skeleton.py tests/fixtures/generated/dvd-css --css
+MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/dvd-css
 # 期望: [TOAST] 不支持加密原盘，请使用已解密资源
 ```
 

@@ -354,6 +354,25 @@ void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int
     loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
 }
 
+void PlayerController::loadDvd(const QString& deviceRoot, int titleNumber, int startChapter) {
+    if (!mpv_ || deviceRoot.isEmpty() || titleNumber < 1)
+        return;
+    const QByteArray rawDevice = deviceRoot.toUtf8();
+    if (const int rc = mpv_set_property_string(mpv_, "dvd-device", rawDevice.constData()); rc < 0) {
+        emit errorOccurred(QString::fromUtf8(mpv_error_string(rc)));
+        return;
+    }
+    pendingChapter_ = startChapter;
+    screenshotStem_ = QStringLiteral("%1_title%2")
+                          .arg(QFileInfo(deviceRoot).completeBaseName())
+                          .arg(titleNumber, 2, 10, QLatin1Char('0'));
+    // mpv 的 dvd://N 是 0 起（实测：dvd://2 落在 libdvdread 的 title 3 上，等价于 --edition=2）。
+    const QString uri = QStringLiteral("dvd://%1").arg(titleNumber - 1);
+    qInfo("DVD 播放: %s | title=%d (%s) | 起始章节=%d", qUtf8Printable(deviceRoot), titleNumber, qUtf8Printable(uri),
+          startChapter);
+    loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
+}
+
 void PlayerController::loadInternal(const QString& uri, const QString& resumeKey) {
     if (!mpv_ || uri.isEmpty())
         return;
@@ -449,6 +468,7 @@ void PlayerController::jumpToChapter(int index) {
         return;
     int64_t v = index;
     mpv_set_property(mpv_, "chapter", MPV_FORMAT_INT64, &v);
+    qInfo("跳章节: #%d/%d (当前 %.1fs)", index + 1, int(chapters_.size()), position_);
 }
 
 QString PlayerController::screenshotDir() {
