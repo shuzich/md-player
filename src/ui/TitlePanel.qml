@@ -14,9 +14,15 @@ Drawer {
     width: Math.min(420, parent ? parent.width * 0.82 : 420)
     height: parent ? parent.height : 0
     dim: false
-    // 非模态：面板开着时视频与播控仍可直接操作，空格/方向键也不被抢走。
+    // 非模态：面板开着时视频与播控仍可直接操作。
     modal: false
-    closePolicy: Popup.CloseOnEscape
+    // focus 必须为 false。Popup 一旦拿到 activeFocus，QQuickPopupItem 会成为窗口的
+    // activeFocusItem，此后窗口级 Shortcut 虽然 enabled=true 却再也不触发
+    // ——面板一开，空格/方向键/截图快捷键就全哑了（实测）。本面板只用鼠标操作，
+    // 不需要键盘焦点。代价是 Popup.CloseOnEscape 也随之失效，Esc 改由下面的
+    // 窗口级 Shortcut 承担（正因为焦点没被抢走，它才能触发）。
+    focus: false
+    closePolicy: Popup.NoAutoClose
     dragMargin: 0 // 边缘拖拽手势会和进度条打架，只走按钮/快捷键开关
 
     background: Rectangle {

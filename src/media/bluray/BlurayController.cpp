@@ -124,9 +124,11 @@ bool BlurayController::openPath(const QString& path) {
         for (const ChapterInfo& c : p.chapters)
             if (!c.name.isEmpty())
                 ++named;
-    qInfo("蓝光碟已打开: %s | 碟名=%s | playlist=%d 条 | 主标题=#%d | 章节名=%d 条 | BD-J=%d",
+    const QString mainSummary =
+        disc_.mainTitleIndex >= 0 ? describe(disc_.playlists.at(disc_.mainTitleIndex)) : QStringLiteral("(无)");
+    qInfo("蓝光碟已打开: %s | 碟名=%s | playlist=%d 条 | 主标题=#%d [%s] | 章节名=%d 条 | BD-J=%d",
           qUtf8Printable(disc_.rootPath), qUtf8Printable(disc_.discName), int(disc_.playlists.size()),
-          disc_.mainTitleIndex, named, int(disc_.bdjDetected));
+          disc_.mainTitleIndex, qUtf8Printable(mainSummary), named, int(disc_.bdjDetected));
 
     // 打开即播主标题：这是最常见的意图，完整列表仍在面板里随时可换。
     if (disc_.mainTitleIndex >= 0)

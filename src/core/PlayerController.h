@@ -127,6 +127,9 @@ private:
     QString resumeKey_;
     QString pendingUri_;
     QString pendingResumeKey_;
+    // 碟类资源的截图文件名词干。碟内没有 META 时 mpv 的 media-title 会退化成
+    // 「1」这种无意义值（bd://mpls/1 的末段），故由 loadBluray 显式给定。
+    QString screenshotStem_;
     int pendingChapter_ = -1;
     double pendingResumePos_ = 0.0;
     // seek 手感埋点（MD_LOG_SEEK=1 时启用）：记录最近一次 seek 的发出时刻与目标，

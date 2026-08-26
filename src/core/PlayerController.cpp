@@ -332,6 +332,7 @@ void PlayerController::notifyRenderReady() {
 
 void PlayerController::load(const QString& uri) {
     pendingChapter_ = -1;
+    screenshotStem_.clear();
     loadInternal(uri, uri);
 }
 
@@ -345,6 +346,9 @@ void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int
         return;
     }
     pendingChapter_ = startChapter;
+    screenshotStem_ = QStringLiteral("%1_mpls%2")
+                          .arg(QFileInfo(deviceRoot).completeBaseName())
+                          .arg(playlistId, 5, 10, QLatin1Char('0'));
     const QString uri = QStringLiteral("bd://mpls/%1").arg(playlistId);
     loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
 }
@@ -458,9 +462,9 @@ void PlayerController::screenshot(bool withSubtitles) {
     if (!mpv_ || !hasMedia_)
         return;
 
-    // bd://mpls/1 这类 URI 的 basename 是「1」，毫无意义；碟类资源改用媒体标题。
-    QString stem =
-        currentUri_.contains(QStringLiteral("://")) ? mediaTitle_ : QFileInfo(currentUri_).completeBaseName();
+    // bd://mpls/1 这类 URI 的 basename 是「1」，毫无意义；碟类资源用 loadBluray
+    // 给定的「碟根名_mplsNNNNN」，比 media-title 可靠（无 META 的碟 title 也是「1」）。
+    QString stem = screenshotStem_.isEmpty() ? QFileInfo(currentUri_).completeBaseName() : screenshotStem_;
     stem.remove(QRegularExpression(QStringLiteral("[/\\\\:*?\"<>|]")));
     stem = stem.trimmed();
     if (stem.isEmpty())

@@ -93,6 +93,7 @@ ApplicationWindow {
         function onErrorOccurred(msg) { toast.show("错误：" + msg) }
     }
 
+
     Connections {
         target: Bluray
         // 加密盘 / 损坏盘等走的都是这条，文案统一在 strings.h。
@@ -194,7 +195,9 @@ ApplicationWindow {
     Shortcut { sequence: "s"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(false) }
     Shortcut { sequence: "Shift+S"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(true) }
     Shortcut { sequence: "t"; enabled: !resumeDialog.opened && Bluray.discOpen
-               onActivated: titlePanel.visible ? titlePanel.close() : titlePanel.open() }
+               onActivated: titlePanel.opened ? titlePanel.close() : titlePanel.open() }
+    // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。
+    Shortcut { sequence: "Escape"; enabled: titlePanel.opened; onActivated: titlePanel.close() }
     Shortcut { sequence: StandardKey.FullScreen
                onActivated: root.visibility = (root.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen) }
 }
