@@ -10,6 +10,7 @@ MusicDisc Player：本地实体碟资源统一播放器（macOS / Windows）。
 1. **能用成熟组件绝不自研。** 解码/渲染/seek/截图/音频输出 = libmpv；蓝光结构 = libbluray；DVD 结构 = libdvdread；SACD = vendored scarletbook + dst。自研只允许出现在：应用壳、资源路由、虚拟菜单、进程/协议胶水层。
 2. **绝不引入解密。** 不接入 libaacs / libbdplus / libdvdcss，不实现任何密钥逻辑。检测到加密盘 → 界面明确提示"不支持加密原盘，请使用已解密资源"，文案统一放 `src/app/strings.h`。
 3. **产品决策不擅断。** 涉及交互方案、范围增减、视觉风格的选择：停下，在汇报末尾列【待决策】清单等确认。技术实现方案凡是本文档与 docs/ 已定的，直接执行，不要反复请示。
+   **控制器最新指令与本文档冲突时，以控制器指令为准；长耗时（>15 分钟）、安装系统级依赖、改动 git 历史或远端、任何删除操作，一律先报后动。**
 4. **仓库始终干净。** 每个任务：feature 分支 → 完成 → 所有文件要么已跟踪、要么已入 .gitignore → conventional commit（feat: / fix: / chore: / docs:）→ 汇报。严禁遗留未跟踪文件，严禁堆积半成品代码。
 5. **双平台意识。** 开发与验收在 macOS，但代码任何时刻保持 Windows 可编译的写法：路径一律 `std::filesystem` / Qt 抽象；平台特定代码集中到 `src/platform/`；`#ifdef` 最小化。
 

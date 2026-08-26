@@ -38,7 +38,9 @@
 ## T4 DVD 模块（VIDEO_TS / DVD ISO）
 
 - libdvdread 枚举 title / 章节 / 时长；`dvd://<N>` 播放（按 T0 探测结论用系统或自编译 libmpv）。
+- **加密盘拦截**：DVD 模块读 VOB 扇区自检 PES scrambling control 位（参考位置：扇区偏移 0x14 字节，**以实测为准**），命中即拦截并走 `strings.h` 的「不支持加密原盘」统一文案。拦截发生在应用层，不依赖底层库解不开（D-012）。
 - 验收：演唱会 DVD 样本 title 列表正确、播放与换 title 正常、章节跳转准确；DVD ISO 与文件夹两种形态均通过。
+- 验收（加密盘）：**在已安装 libdvdcss 的机器上**打开 CSS 加密 DVD，md-player 必须给出「不支持加密原盘」统一报错；**严禁静默播放成功**，也不得崩溃。
 
 ## T5 统一资源路由 + 指纹
 
