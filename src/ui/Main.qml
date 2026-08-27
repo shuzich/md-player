@@ -108,6 +108,12 @@ ApplicationWindow {
     }
 
     Connections {
+        // 路由层的错误：路径不存在、镜像不完整、一个文件夹里多张碟、SACD 暂不支持。
+        target: Router
+        function onErrorOccurred(msg) { toast.show(msg) }
+    }
+
+    Connections {
         target: Bluray
         // 加密盘 / 损坏盘等走的都是这条，文案统一在 strings.h。
         function onErrorOccurred(msg) { toast.show(msg) }
@@ -206,10 +212,9 @@ ApplicationWindow {
         onDropped: function(drop) {
             if (!drop.hasUrls || drop.urls.length === 0)
                 return
-            // 蓝光 → DVD → 直通 mpv。前两个都是「不认就返回 false」。
-            // T5 会把这里换成统一路由入口。
-            if (!Bluray.openUrl(drop.urls[0]) && !Dvd.openUrl(drop.urls[0]))
-                Player.loadUrl(drop.urls[0])
+            // 统一路由入口（T5）：判定四类资源、必要时向下找碟根、
+            // 错误文案与指纹日志都在 C++ 侧，这里不再做分派。
+            Router.openUrl(drop.urls[0])
         }
     }
 

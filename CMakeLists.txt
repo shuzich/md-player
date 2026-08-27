@@ -66,6 +66,13 @@ qt_add_executable(md-player
     src/core/ResumeStore.cpp
     src/core/ResumeStore.h
     src/media/DiscModel.cpp
+    src/media/DiscModel.h
+    src/media/Fingerprint.cpp
+    src/media/Fingerprint.h
+    src/media/router/DiscRouter.cpp
+    src/media/router/DiscRouter.h
+    src/media/router/RouterController.cpp
+    src/media/router/RouterController.h
     src/media/bluray/BlurayDisc.cpp
     src/media/bluray/BlurayDisc.h
     src/media/bluray/BlurayController.cpp

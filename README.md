@@ -80,7 +80,10 @@ CMake 会自动优先使用 `third_party/prefix`，无需手动设 `PKG_CONFIG_P
 ./build/md-player /path/to/dvd.iso            # DVD ISO（无需先挂载）
 ```
 
-分派顺序是蓝光 → DVD → 普通播放，前两个「不认就交还」，所以普通视频文件照常直通 mpv。
+命令行参数与拖拽走同一个入口（`src/media/router`）：先判定资源类型，必要时**向下最多 3 层**
+去找真正的碟根（实际资源常在外面套一到两层同名目录），再分派给蓝光 / DVD 模块或直通 mpv。
+一个文件夹里放了多张碟时会列出碟名让你指定，**不会替你挑一张打开**。
+SACD ISO 目前只识别、不播放，会明确提示「播放支持将在后续版本提供」（播放归 T6）。
 
 碟类资源打开后自动播主标题（时长最长优先，并列取章节多者），标题与章节都在左侧
 **标题·章节面板**里（蓝光与 DVD 共用同一个面板）：列出碟内标题（演唱会碟常按曲目组分多条，故不按时长排序），
@@ -92,6 +95,14 @@ playlist；它只影响显示，碟内完整结构始终保留，主标题与正
 **加密盘**：蓝光看 libbluray 的 `aacs_detected && !aacs_handled`；DVD 由应用层自检 VOB 扇区的
 PES 扰码位（D-022）。两者都给统一文案「不支持加密原盘，请使用已解密资源」，不做任何绕过尝试。
 本机即便装了 libdvdcss 也不受影响——自编译的 libdvdread 关掉了该选项，进程运行期不加载它。
+
+**不完整的镜像**：只比对「镜像自己声明的总大小」与「文件实际大小」（ISO9660 主卷描述符，
+或纯 UDF 镜像的卷末锚点），下载没下完的 ISO 在**打开时**就会被拦下，不会先列出标题再在
+播放时失败。判定不抽扇区试读——那在真盘上会误伤（D-026）。
+
+**碟片指纹**：每次成功打开碟片都会往日志里写一行
+`fingerprint={"type":...,"sha256":...,"label":...}`。M1 只计算与落日志，**不做任何网络上行**；
+拼法钉死在 D-024，同一张碟无论放在哪个路径、以目录还是镜像形态打开，结果都一样。
 
 快捷键：
 
@@ -132,6 +143,10 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/bd-aacs
 python3 tests/fixtures/make_dvd_skeleton.py tests/fixtures/generated/dvd-css --css
 MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/dvd-css
 # 期望: [TOAST] 不支持加密原盘，请使用已解密资源
+
+python3 tests/fixtures/make_broken_iso.py tests/fixtures/generated/broken
+MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
+# 期望: [TOAST] 这个镜像不完整（下载未完成或已损坏），请换一份完整的镜像
 ```
 
 ### 诊断日志
