@@ -70,6 +70,7 @@ cmake --build build
 7. **Qt Quick Popup 的焦点陷阱**：Popup（含 Drawer/Dialog）设 `focus: true` 后，`QQuickPopupItem` 会成为窗口的 `activeFocusItem`，此后**所有 `Qt.WindowShortcut` 快捷键静默失效**——`enabled` 仍是 `true`，就是不触发，没有任何报错。本项目所有覆盖在播放画面上的 Popup 一律 `focus: false`，Esc 关闭改由窗口级 `Shortcut` 承担；面板内部的 Controls 控件还须显式 `focusPolicy: Qt.NoFocus`，否则点一下控件同样会把焦点吸进 Popup。详见 D-018。
 8. **重叠的 TapHandler 会一起触发**：父项与子项各挂一个 `TapHandler` 且区域重叠时，点子项会**两个都响应**（T3 的标题行与展开箭头就是这样，点箭头顺带把该标题重新载入一遍；蓝光上不明显，DVD 换 title 要几秒，一眼可见）。解法是让点击区物理不重叠——把行的 `TapHandler` 挂到一个 anchors 避开箭头的 `Item` 上，而不是指望事件被"消费"。
 9. **交互验证前先确保环境干净**：跑任何 UI 验证之前必须先清 `resume.json`（断点记录）、`pkill md-player` 确认没有残留进程、确认没有模态框开着。曾经因为遗留断点记录让模态续播框一直开着，把「模态框挡住点击 + 按住快捷键失效」整整误判成播控条与快捷键功能回归，白查了十几轮。**现象不对先怀疑环境，再怀疑代码。**
+10. **mpv 的「属性无值」事件 data 是空指针**：`aid` / `sid` 关成 `no` 时，mpv 发的 `MPV_EVENT_PROPERTY_CHANGE` 带的是 `MPV_FORMAT_NONE` + `data == nullptr`，而不是某个负数。`handlePropertyChange` 开头那道 `if (!prop->data) return;` 闸门会把这类事件整个吞掉，于是「关字幕」在 mpv 侧生效了、UI 状态却永远停在上一条轨上——没有任何报错，看起来就像点了没反应。凡是**能被关闭**的属性（aid / sid / vid / 各种 `-delay`），一律在空指针闸门**之前**单独处理，把 NONE 折算成 -1。查这类问题时先用 `MD_LOG_PROPS=1` 看 `fmt=0 data=0x0`，再用 `mpv_get_property_string` 对一遍 mpv 侧真值，别只信 UI（issue #2）。
 
 ## 与产品侧的关系
 

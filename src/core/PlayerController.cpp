@@ -18,6 +18,16 @@
 namespace md::core {
 
 namespace {
+
+// aid / sid 关闭时（`--aid=no` / `--sid=no`）mpv 发来的 property-change 事件 format 是
+// MPV_FORMAT_NONE 而不是 INT64——早先只认 INT64，于是「字幕：关」在 mpv 侧生效了、
+// 播控条却还显示着上一条字幕轨，看起来像点了没反应（issue #2）。统一折算成 -1。
+qint64 trackIdFromEvent(const mpv_event_property* prop) {
+    if (prop->format != MPV_FORMAT_INT64)
+        return -1;
+    return *static_cast<int64_t*>(prop->data);
+}
+
 PlayerController* g_instance = nullptr;
 
 // mpv 用 int 表示布尔属性。
@@ -233,6 +243,20 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
     if (logProps)
         qInfo("[prop] %s fmt=%d data=%p", prop->name, int(prop->format), prop->data);
 
+    // aid / sid 必须在下面的空指针闸门之前处理：轨道关闭时 mpv 发的是 MPV_FORMAT_NONE
+    // 事件，data 为空指针，会被闸门原样丢掉——「字幕：关」于是在 mpv 侧生效了、
+    // 播控条却还显示着上一条字幕轨（issue #2）。
+    if (name == QLatin1String("aid")) {
+        audioTrackId_ = trackIdFromEvent(prop);
+        emit audioTrackIdChanged();
+        return;
+    }
+    if (name == QLatin1String("sid")) {
+        subtitleTrackId_ = trackIdFromEvent(prop);
+        emit subtitleTrackIdChanged();
+        return;
+    }
+
     if (!prop->data)
         return;
 
@@ -279,12 +303,6 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
         refreshChapters();
     } else if (name == QLatin1String("track-list")) {
         refreshTracks();
-    } else if (name == QLatin1String("aid") && prop->format == MPV_FORMAT_INT64) {
-        audioTrackId_ = *static_cast<int64_t*>(prop->data);
-        emit audioTrackIdChanged();
-    } else if (name == QLatin1String("sid") && prop->format == MPV_FORMAT_INT64) {
-        subtitleTrackId_ = *static_cast<int64_t*>(prop->data);
-        emit subtitleTrackIdChanged();
     } else if (name == QLatin1String("dwidth")) {
         // 拿到显示宽度即说明解码链已出画面参数，用于 T1 自检展示。
         char* w = mpv_get_property_string(mpv_, "dwidth");
