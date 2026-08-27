@@ -9,7 +9,8 @@ namespace md::media {
 
 namespace {
 constexpr auto kSettingHideShort = "ui/hideShortTitles";
-constexpr auto kSettingTitleHint = "ui/titleHintShown";
+// 上手提示只在**每次会话**的首张碟上出现一次，所以状态留在进程内，不落盘（D-020）。
+bool titleHintShown = false;
 } // namespace
 
 QString formatDuration(double seconds) {
@@ -42,10 +43,9 @@ void setHideShortTitlesSetting(bool hide) {
 }
 
 bool takeTitleHintSetting() {
-    QSettings settings;
-    if (settings.value(QString::fromLatin1(kSettingTitleHint), false).toBool())
+    if (titleHintShown)
         return false;
-    settings.setValue(QString::fromLatin1(kSettingTitleHint), true);
+    titleHintShown = true;
     return true;
 }
 

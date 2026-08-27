@@ -18,7 +18,7 @@ QVariantList filterVisible(const QVariantList& all, bool hideShort, int currentI
 
 bool hideShortTitlesSetting();
 void setHideShortTitlesSetting(bool hide);
-// 首次返回 true 并落盘，之后恒为 false。
+// 每次会话的首次调用返回 true，之后本进程内恒为 false（不落盘，D-020）。
 bool takeTitleHintSetting();
 
 } // namespace md::media

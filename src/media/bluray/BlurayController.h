@@ -52,7 +52,7 @@ public:
     // chapterNumber 从 1 开始。
     Q_INVOKABLE void playChapter(int index, int chapterNumber);
     Q_INVOKABLE void closeDisc();
-    // 首次调用返回 true 并落盘，之后恒为 false。用于「按 T 选择标题 / 章节」的一次性提示（D-020）。
+    // 每次会话的首次调用返回 true，之后恒为 false。用于「按 T 选择标题 / 章节」的上手提示（D-020）。
     Q_INVOKABLE bool takeTitleHint();
 
 signals:
