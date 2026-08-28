@@ -146,12 +146,26 @@ ApplicationWindow {
         closePolicy: Popup.CloseOnEscape  // Esc 等同「从头播放」
 
         // 用自定义 footer 取代 standardButtons，顺带把按钮文案本地化。
-        // 注意：下面这句 forceActiveFocus 并**没有**让回车生效——按钮拿到了焦点框，
-        // 但 Return 仍不激活它（物理键盘复现）。鼠标点击与 Esc 正常。见 issue #1，排期 T7。
-        // 排查前先打印 activeFocusItem 确认按键落点，别再盲试方案。
+        // 打开时把键盘焦点放到「继续」上，回车的落点就固定在 footer 这棵子树里。
         onOpened: acceptButton.forceActiveFocus()
 
         footer: DialogButtonBox {
+            // 回车由这里接（issue #1）。两条路都走不通，不要再试：
+            //   · 窗口级 Shortcut —— Popup 一拿到 activeFocus，Qt.WindowShortcut
+            //     就整体哑掉，enabled 仍是 true 却不触发（D-018 / 深坑 #7）。
+            //     而本框需要键盘焦点（Esc 要能关），不能照 TitlePanel 那样 focus: false。
+            //   · 指望 Button 自己吃下 Return —— Qt Quick Controls 的
+            //     QQuickAbstractButton 只处理 Space，没有 Widgets 那套 default button
+            //     语义，Return 到了按钮身上直接 ignore。
+            // 但正因为按钮 ignore，事件会沿父链冒泡到 DialogButtonBox，在这里接得住，
+            // 且不动窗口级快捷键分毫。小键盘回车是 Key_Enter，必须一起认。
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    resumeDialog.accept()
+                    event.accepted = true
+                }
+            }
+
             Button {
                 id: acceptButton
                 text: qsTr("继续")
