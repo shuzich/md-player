@@ -10,6 +10,8 @@ Rectangle {
 
     signal requestScreenshot(bool withSubtitles)
     signal requestTitlePanel()
+    signal requestPrevTitle()
+    signal requestNextTitle()
 
     // 碟类资源才有标题面板可开。
     property bool hasTitles: false
@@ -54,12 +56,33 @@ Rectangle {
                 onClicked: root.requestTitlePanel()
             }
 
+            // 上一个 / 下一个条目（SACD=曲目，蓝光/DVD=标题）
+            ToolButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.hasTitles
+                text: "⏮"
+                font.pixelSize: 15
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("上一个 (PgUp)")
+                onClicked: root.requestPrevTitle()
+            }
+
             // 播放 / 暂停
             ToolButton {
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.player.paused ? "▶" : "⏸"
                 font.pixelSize: 17
                 onClicked: root.player.togglePause()
+            }
+
+            ToolButton {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.hasTitles
+                text: "⏭"
+                font.pixelSize: 15
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("下一个 (PgDn)")
+                onClicked: root.requestNextTitle()
             }
 
             Text {
@@ -86,9 +109,14 @@ Rectangle {
                 id: audioBox
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.player.audioTracks.length > 1
-                width: 170
+                width: 210
                 model: root.player.audioTracks
                 textRole: "label"
+                // 没有前缀时两个下拉框长得一模一样，用户根本不知道哪个是音轨、哪个是
+                // 字幕——这就是 issue #3 的主因。displayText 只改收起时的显示，
+                // 展开后的列表项保持原样。
+                displayText: qsTr("音轨：") + (currentIndex >= 0 && currentIndex < model.length
+                                              ? model[currentIndex].label : qsTr("默认"))
                 onActivated: function(i) { root.player.setAudioTrack(model[i].id) }
                 Component.onCompleted: syncIndex()
                 function syncIndex() {
@@ -107,9 +135,11 @@ Rectangle {
                 id: subBox
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.player.subtitleTracks.length > 0
-                width: 170
+                width: 210
+                displayText: qsTr("字幕：") + (currentIndex >= 0 && currentIndex < model.length
+                                              ? model[currentIndex].label : qsTr("关"))
                 model: {
-                    var list = [{ id: -1, label: "字幕：关" }]
+                    var list = [{ id: -1, label: "关" }]
                     for (var i = 0; i < root.player.subtitleTracks.length; i++)
                         list.push(root.player.subtitleTracks[i])
                     return list

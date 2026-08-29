@@ -43,7 +43,9 @@ public:
     int currentIndex() const { return currentIndex_; }
 
     // 返回 false = 这不是 SACD（或 helper 不可用），调用方继续往下分派。
-    Q_INVOKABLE bool openPath(const QString& path);
+    // volumeLabel 是 ISO9660 卷标（由指纹层读出）。碟内 master text 缺省时用它兜底，
+    // 再缺就是「未命名 SACD」——降级链见 D-049。
+    Q_INVOKABLE bool openPath(const QString& path, const QString& volumeLabel = QString());
     Q_INVOKABLE void playIndex(int index);
     Q_INVOKABLE void playChapter(int index, int chapterNumber); // SACD 无章节，等价 playIndex
     Q_INVOKABLE void closeDisc();
@@ -72,8 +74,8 @@ private:
     bool hideShortTitles_ = true;
     int mainTitleIndex_ = -1;
     int currentIndex_ = -1;
-    int queueStartIndex_ = -1; // 播放列表第 0 项对应的曲目下标
-    QVector<int> pendingQueue_;  // 等 fileLoaded 后再追加的曲目号
+    int queueStartIndex_ = -1;  // 播放列表第 0 项对应的曲目下标
+    QVector<int> pendingQueue_; // 等 fileLoaded 后再追加的曲目号
 };
 
 } // namespace md::media::sacd

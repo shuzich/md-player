@@ -9,12 +9,16 @@ import QtQuick.Controls
 Drawer {
     id: root
 
-    required property var disc // BlurayController 或 DvdController，鸭子类型对齐
+    required property var disc // Bluray / Dvd / Sacd 三个 Controller，鸭子类型对齐
     required property var fmt  // 时长格式化函数，复用 ControlBar 的实现
+    // 播控条的高度。面板是 Popup，渲染在 overlay 层，普通 Item 无论 z 多大都盖不过它，
+    // 所以只能让面板自己让出这块地方——否则全高抽屉会把 ☰ / 播放键 / 时间 / 音量 /
+    // 音轨字幕入口整排压在下面（人工验收：「不知道在哪里切换声道与字幕」的直接原因）。
+    required property real bottomReserve
 
     edge: Qt.LeftEdge
     width: Math.min(420, parent ? parent.width * 0.82 : 420)
-    height: parent ? parent.height : 0
+    height: parent ? Math.max(0, parent.height - root.bottomReserve) : 0
     dim: false
     // 非模态：面板开着时视频与播控仍可直接操作。
     modal: false

@@ -120,6 +120,7 @@ PES 扰码位（D-022）。两者都给统一文案「不支持加密原盘，�
 | `s` / `Shift+S` | 截图（纯画面 / 含字幕） |
 | `t` | 标题·章节面板（碟类资源） |
 | `g` | SACD +6dB 增益开关（临时入口，正式安家 T7 设置页） |
+| `PgUp` / `PgDn` | 上一个 / 下一个条目（SACD 曲目、蓝光与 DVD 标题）；`<` / `>` 等效 |
 
 进度条拖动时贴关键帧即时出画，松手落精确点（CLAUDE.md 深坑 #2）；章节以刻度显示在进度条上。
 截图落 `~/Pictures/md-player/`。断点续播记录在
@@ -139,6 +140,8 @@ scripts/sacd-helper-drive.py --list                       # 列出目录下所�
 scripts/sacd-helper-drive.py --all --determinism          # 逐张 open/stat/read + 两遍逐字节比对
 scripts/sacd-helper-drive.py --iso "<某张.iso>" --track 3 # 单张单轨
 scripts/sacd-helper-drive.py --all --kill-test            # kill -9 helper，看驱动侧是否收到 EOF
+scripts/sacd-helper-drive.py --iso "<某张.iso>" --verify-random   # 正确性 oracle：随机存取 vs 顺序参照件
+scripts/sacd-helper-drive.py --iso "<某张.iso>" --seek-bench      # seek 耗时统计
 ```
 
 没有真碟时用自造骨架（不含任何音频内容）：
@@ -199,6 +202,7 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
 | `MD_SACD_DEBUG=1` | sacd-helper 打印 vendored 解析层的全部诊断（一律走 stderr） |
 | `MD_SACD_STDOUT_TEST=1` | sacd-helper 启动时故意用四种方式往 stdout 写字，用来实测保险闸（D-040） |
+| `MD_SACD_DUMP=<目录>` | 把 mpv 经 `sacd://` 实际读到的字节按偏移写进稀疏文件（另附 `.log` 记每次读的 offset/len），用来和顺序导出的参照件逐字节对账 |
 
 ### 代码格式
 

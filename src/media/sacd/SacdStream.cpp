@@ -2,22 +2,22 @@
 
 #include "media/sacd/SacdProbe.h"
 
+#include <QDebug>
 #include <QHash>
 #include <QMutex>
-#include <QDebug>
 #include <QMutexLocker>
-
-#include <atomic>
 
 #include <mpv/client.h>
 #include <mpv/stream_cb.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #ifndef _WIN32
 #include <csignal>
+#include <fcntl.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -175,6 +175,8 @@ private:
 
 struct Stream {
     Session session;
+    int dumpFd = -1; // MD_SACD_DUMP：把 mpv 实际读到的字节按偏移写进稀疏文件
+    FILE* dumpLog = nullptr;
     int area = 0;
     int track = 1;
     qint64 size = 0;
@@ -243,12 +245,22 @@ int64_t streamRead(void* cookie, char* buf, uint64_t nbytes) {
         g_streamFailed.store(true);
         return -1;
     }
+    if (s->dumpFd >= 0 && len) {
+        ::pwrite(s->dumpFd, buf, len, off_t(s->pos));
+        if (s->dumpLog)
+            fprintf(s->dumpLog, "%lld %u\n", (long long)s->pos, len);
+    }
     s->pos += len;
     return len;
 }
 
 void streamClose(void* cookie) {
-    delete static_cast<Stream*>(cookie);
+    Stream* s = static_cast<Stream*>(cookie);
+    if (s->dumpFd >= 0)
+        ::close(s->dumpFd);
+    if (s->dumpLog)
+        fclose(s->dumpLog);
+    delete s;
 }
 
 // sacd://<token>/<area>/<track>
@@ -303,6 +315,12 @@ int streamOpen(void* /*user_data*/, char* uri, mpv_stream_cb_info* info) {
     }
     s->nextId = 3;
 
+    if (const QByteArray dir = qgetenv("MD_SACD_DUMP"); !dir.isEmpty()) {
+        const QString base = QStringLiteral("%1/a%2t%3").arg(QString::fromLocal8Bit(dir)).arg(area).arg(track);
+        s->dumpFd = ::open(base.toLocal8Bit().constData() + QByteArray(".bin"), O_CREAT | O_RDWR, 0644);
+        s->dumpLog = fopen((base + QStringLiteral(".log")).toLocal8Bit().constData(), "w");
+        qInfo("sacd 流: dump → %s.bin (fd=%d)", qUtf8Printable(base), s->dumpFd);
+    }
     info->cookie = s;
     info->read_fn = streamRead;
     info->seek_fn = streamSeek;

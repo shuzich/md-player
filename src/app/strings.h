@@ -26,6 +26,7 @@ inline constexpr auto kMultipleDiscRoots = "这个文件夹里有多张碟：%1�
 // T6 阶段 2 起 SACD 可播；kSacdNotSupportedYet 随之退役（D-027 的提示只在 T5 期间存在）。
 inline constexpr auto kSacdOpenFailed = "这张 SACD 读不出来，可能镜像不完整或不是标准 Scarlet Book 结构";
 inline constexpr auto kSacdMultichannelNotYet = "多声道区暂不支持播放，请选择立体声区的曲目";
+inline constexpr auto kSacdUnnamed = "未命名 SACD";
 inline constexpr auto kSacdHelperLost = "SACD 解码进程意外退出，播放已中断";
 inline constexpr auto kSacdGainOn = "SACD 增益 +6dB：开";
 inline constexpr auto kSacdGainOff = "SACD 增益 +6dB：关";

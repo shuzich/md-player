@@ -466,6 +466,11 @@ void PlayerController::setSacdGain(bool on) {
 // DSF 经 ffmpeg 解为 PCM 后比 foobar2000 + SACD 插件低约 6dB（CLAUDE.md 深坑 #5）。
 // 用 lavfi 的 volume 滤镜补，只在放 SACD 时挂上，换回别的资源就摘掉——
 // 免得给普通片源平白加 6dB。
+//
+// **volume 后面必须跟 alimiter**：DSD 母带常压到 -3.6 dBFS（ffmpeg 口径），再加
+// 6dB 就冲到 +3.5 dBFS，音频设备只能硬削，听感是响处一片杂音——这正是阶段 2
+// 人工验收报的「seek 后先出杂音」（实测整轨 160578 个样本越界，占 0.046%）。
+// 限幅器把峰值压到 -0.2 dBFS，只动那 0.046% 的峰，其余一个样本不改（D-047）。
 void PlayerController::applySacdGain() {
     if (!mpv_)
         return;
@@ -473,7 +478,9 @@ void PlayerController::applySacdGain() {
     mpv_command(mpv_, args_clear);
     if (!sacdActive_ || !sacdGain_)
         return;
-    const char* args_add[] = {"af", "add", "@sacdgain:lavfi=[volume=6dB]", nullptr};
+    const char* args_add[] = {
+        "af", "add", "@sacdgain:lavfi=[volume=6dB,alimiter=limit=0.977:level=disabled,aformat=sample_fmts=fltp]",
+        nullptr};
     if (const int rc = mpv_command(mpv_, args_add); rc < 0)
         qWarning("SACD 增益挂载失败: %s", mpv_error_string(rc));
 }

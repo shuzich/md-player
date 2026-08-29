@@ -87,6 +87,14 @@ jobs:
           grep -q 'dsf_size' guard.txt \
             || { echo "::error::stdout 保险闸失效，帧流被污染"; cat guard.txt; exit 1; }
           echo "✓ 协议 v1 冒烟通过，stdout 保险闸有效"
+          # 正确性 oracle：顺序全量导出做参照件，再用全新 helper 随机存取逐段 memcmp。
+          # 确定性只证明幂等，不证明正确（CLAUDE.md 深坑 #11）。骨架的音频区是全零，
+          # 所以这一步在 CI 上主要验索引与定位算术，真碟的强度验证走 MD_TEST_MEDIA。
+          scripts/sacd-helper-drive.py \
+            --iso tests/fixtures/generated/sacd-skeleton.iso \
+            --track 1 --verify-random --rounds 200 | tee rand.txt
+          grep -q '✗' rand.txt && { echo "::error::随机存取与参照件不一致"; exit 1; }
+          echo "✓ 随机存取与参照件逐字节一致"
 
       # helper 是独立进程，不该链任何 Qt / 播放栈，更不该出现解密库。
       - name: Verify sacd-helper isolation

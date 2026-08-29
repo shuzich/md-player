@@ -72,9 +72,8 @@ DiscInfo probe(const QString& isoPath) {
         info.error = QStringLiteral("sacd-helper 启动失败");
         return info;
     }
-    QJsonObject req{{QStringLiteral("id"), 1},
-                    {QStringLiteral("cmd"), QStringLiteral("open")},
-                    {QStringLiteral("path"), isoPath}};
+    QJsonObject req{
+        {QStringLiteral("id"), 1}, {QStringLiteral("cmd"), QStringLiteral("open")}, {QStringLiteral("path"), isoPath}};
     proc.write(QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n');
     proc.write("{\"id\":2,\"cmd\":\"quit\"}\n");
 

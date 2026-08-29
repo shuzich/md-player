@@ -154,6 +154,125 @@ def run_one(exe, iso, track, ranges, quiet=False):
     return digests
 
 
+def areas_of(exe, iso, only):
+    h = Helper(exe)
+    info = h.call(cmd="open", path=iso)
+    out = [a for a in info.get("areas", []) if only is None or a["area"] == only]
+    h.close()
+    return out
+
+
+def build_reference(exe, iso, area, track):
+    """顺序全量读出整轨 = 参照件。顺序路径是阶段 1 就验过、且与 ffmpeg 对过账的，
+    拿它当 oracle；随机存取路径再对着它比。"""
+    h = Helper(exe)
+    h.call(cmd="open", path=iso)
+    st = h.call(cmd="stat", area=area["area"], track=track)
+    size = st["dsf_size"]
+    buf = bytearray()
+    off = 0
+    while off < size:
+        d = h.read(area["area"], track, off, min(1 << 20, size - off))
+        if not d:
+            break
+        buf += d
+        off += len(d)
+    h.close()
+    return bytes(buf), size
+
+
+def random_cases(size, rounds, rng):
+    """覆盖指令点名的全部形态：块内非对齐起点、跨 4096 DSF 块边界、
+    跨 4704 DST 帧边界、块首/块尾 ±1、轨尾截断读、大跨度来回跳。"""
+    HDR, BLK, FRM = 92, 4096, 4704
+    cases = []
+    # 固定形态先各来一遍，保证必覆盖
+    for b in (0, 1, 2, 7, 37, 100):
+        base = HDR + b * BLK
+        cases += [(base, 1), (base + 1, 4095), (base - 1, 4098) if base > HDR else (base, 4098),
+                  (base + BLK - 1, 2), (base + BLK - 1, 8192)]
+    for f in (0, 1, 3, 11, 50):
+        base = HDR + f * FRM
+        cases += [(base, 1), (base - 1, 3), (base + FRM - 2, 5), (base, FRM + 17)]
+    cases += [(size - 1, 1), (size - 100, 4096), (size - 65536, 200000), (size - 3, 3), (HDR, size and 1)]
+    # 其余随机填满，长度分布刻意偏小（mpv seek 后的首读常常是块内短读）
+    while len(cases) < rounds:
+        off = rng.randrange(0, size)
+        ln = rng.choice([1, 3, 17, 512, 1000, 4095, 4096, 4097, 8192, 65536, 131072])
+        cases.append((off, ln))
+    rng.shuffle(cases)
+    return cases[:max(rounds, len(cases))]
+
+
+def locate(off, length, bad):
+    """把首个不等字节翻译成「第几个 DSF 块 / 第几帧 / 帧内偏移」，好定位算术错在哪。"""
+    HDR, BLK, FRM = 92, 4096, 4704
+    g = off + bad
+    if g < HDR:
+        return f"落在 92 字节 DSF 头内，偏移 {g}"
+    d = g - HDR
+    return (f"数据区偏移 {d}；第 {d // BLK} 个 DSF 块（块内 {d % BLK}）；"
+            f"每声道字节 {d}（若 2ch 则每声道 {d // 2}）")
+
+
+def verify_random(exe, iso, area, track, rounds, seed):
+    import random
+    tag = f"区 {area['area']} {area['kind']} {area['channels']}ch dst={area['dst']}"
+    ref, size = build_reference(exe, iso, area, track)
+    if len(ref) != size:
+        print(f"  {tag}: ✗ 参照件长度 {len(ref)} != stat 的 {size}")
+        return False
+    nonzero = sum(1 for i in range(0, len(ref), 4096) if any(ref[i:i + 4096]))
+    print(f"  {tag}: 参照件 {size} 字节，非全零块 {nonzero}/{(len(ref) + 4095) // 4096}")
+
+    rng = random.Random(seed)
+    cases = random_cases(size, rounds, rng)
+    # 全新 helper：索引为空，随机存取全部靠 seek 路径
+    h = Helper(exe)
+    h.call(cmd="open", path=iso)
+    h.call(cmd="stat", area=area["area"], track=track)
+    bad = 0
+    silent = 0
+    for i, (off, ln) in enumerate(cases):
+        if off >= size:
+            continue
+        want = ref[off:off + ln]
+        got = h.read(area["area"], track, off, ln)
+        if got != want:
+            first = next((k for k in range(min(len(got), len(want))) if got[k] != want[k]), min(len(got), len(want)))
+            print(f"    ✗ 第 {i} 次 off={off} len={ln}: 读回 {len(got)} 字节，"
+                  f"首个不等字节在 +{first} → {locate(off, ln, first)}")
+            bad += 1
+            if bad >= 5:
+                print("    （不等太多，后面不再逐条列）")
+                break
+        # 参照件该处非静音，读回来却全零 = 「没有声音」的形态
+        if want and any(want) and not any(got):
+            print(f"    ✗ 第 {i} 次 off={off} len={ln}: 参照件非静音，读回全零")
+            silent += 1
+    # seek 到某点后顺序往下读若干段，抓「先杂音后恢复」
+    seq_bad = 0
+    for start in (size // 3, size // 2, size * 3 // 4):
+        off = start
+        for _ in range(8):
+            ln = 65536
+            if off + ln > size:
+                break
+            got = h.read(area["area"], track, off, ln)
+            if got != ref[off:off + ln]:
+                first = next((k for k in range(len(got)) if got[k] != ref[off + k]), 0)
+                print(f"    ✗ seek 到 {start} 后顺序第 {(off - start) // ln} 段 off={off}: "
+                      f"首个不等字节 +{first} → {locate(off, ln, first)}")
+                seq_bad += 1
+                break
+            off += ln
+    h.close()
+    ok = bad == 0 and silent == 0 and seq_bad == 0
+    print(f"  {tag}: 随机存取 {len(cases)} 次，不等 {bad}，全零 {silent}，seek 后顺序段不等 {seq_bad} "
+          f"→ {'✓ 与参照件逐字节一致' if ok else '✗ 有缺陷'}")
+    return ok
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--exe", default="build/sacd-helper")
@@ -167,6 +286,11 @@ def main():
                     help="先顺序读一段把索引建起来，再在已索引区间做回退 seek 并统计耗时；"
                          "最后测一次未索引区间的前进 seek（追赶）")
     ap.add_argument("--area", type=int, default=None, help="只测某个区")
+    ap.add_argument("--verify-random", action="store_true",
+                    help="正确性 oracle：顺序全量导出做参照件，再用全新 helper 随机存取逐段 memcmp。"
+                         "确定性只证明幂等，不证明正确——这条才证明正确")
+    ap.add_argument("--rounds", type=int, default=200, help="--verify-random 的随机存取次数")
+    ap.add_argument("--seed", type=int, default=20260829, help="随机序列种子，便于复现")
     args = ap.parse_args()
 
     media = os.environ.get("MD_TEST_MEDIA")
@@ -185,6 +309,16 @@ def main():
 
     # 头、块边界、块中间、跨块、接近尾部——覆盖映射里所有分支
     ranges = [(0, 92), (92, 8192), (92 + 4096, 4096), (92 + 8192 * 100 + 123, 65536)]
+
+    if args.verify_random:
+        rc = 0
+        for iso in isos:
+            print(f"### {os.path.basename(iso)}")
+            for area in areas_of(args.exe, iso, args.area):
+                if not verify_random(args.exe, iso, area, args.track, args.rounds, args.seed):
+                    rc = 1
+            print()
+        sys.exit(rc)
 
     if args.seek_bench:
         import statistics

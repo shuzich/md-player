@@ -105,18 +105,20 @@ void RouterController::openPath(const QString& path) {
     case Kind::Sacd:
         // T6 阶段 2 起真播。指纹的 label 用碟内专辑名（拿不到时由 SacdController
         // 按降级链定），比 ISO9660 卷标有意义得多——T5 遗留 5 就此关闭。
-        if (sacd_ && sacd_->openPath(r.target)) {
-            bluray_->closeDisc();
-            dvd_->closeDisc();
+        {
+            // 先算指纹：它顺带读出 ISO9660 卷标，正好当专辑名的兜底（D-049）。
             md::media::Fingerprint fp = md::media::computeSacd(r.target);
-            if (!sacd_->albumLabel().isEmpty())
-                fp.label = sacd_->albumLabel();
+            if (sacd_ && sacd_->openPath(r.target, fp.label)) {
+                bluray_->closeDisc();
+                dvd_->closeDisc();
+                if (!sacd_->albumLabel().isEmpty())
+                    fp.label = sacd_->albumLabel();
+                logFingerprint(fp);
+                return;
+            }
             logFingerprint(fp);
             return;
         }
-        // openPath 失败时 SacdController 已经发过具体文案，这里不再叠一层。
-        logFingerprint(md::media::computeSacd(r.target));
-        return;
 
     case Kind::Bluray:
         if (bluray_->openPath(r.target)) {

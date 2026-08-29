@@ -10,7 +10,24 @@ ApplicationWindow {
     minimumWidth: 720
     minimumHeight: 405
     visible: true
-    title: Player.mediaTitle.length > 0 ? Player.mediaTitle + " — md-player" : "md-player"
+    // 碟类资源优先用碟内名字：mpv 的 media-title 对 bd:// / dvd:// / sacd:// 只会给出
+    // URI 末段（sacd://1/0/10 → 「10」，dvd://5 → 「5」），拿去当窗口标题毫无意义。
+    // 顺序：当前条目的标题 → 碟名 → mpv 的 media-title → 只剩 md-player。
+    readonly property string windowSubject: {
+        var d = root.activeDisc
+        if (d && d.discOpen) {
+            var i = d.currentIndex
+            if (i >= 0 && i < d.playlists.length) {
+                var t = d.playlists[i].titleLabel
+                if (t && t.length > 0)
+                    return (d.discName.length > 0 && d.discName !== t) ? t + " · " + d.discName : t
+            }
+            if (d.discName.length > 0)
+                return d.discName
+        }
+        return Player.mediaTitle
+    }
+    title: windowSubject.length > 0 ? windowSubject + " — md-player" : "md-player"
     color: "#101014"
 
     // 视频渲染面。必须始终 visible —— 一旦不可见，Qt 不会调用 createRenderer，
@@ -51,9 +68,28 @@ ApplicationWindow {
         Behavior on opacity { NumberAnimation { duration: 160 } }
 
         property bool shouldShow: true
+        // 面板开着 = 用户正在挑曲目，播控条常驻，不然让出的那块地方是空的。
+        onVisibleChanged: if (visible && titlePanel.opened) shouldShow = true
         hasTitles: root.activeDisc.discOpen
         onRequestScreenshot: function(withSubs) { Player.screenshot(withSubs) }
         onRequestTitlePanel: titlePanel.visible ? titlePanel.close() : titlePanel.open()
+        onRequestPrevTitle: root.stepTitle(-1)
+        onRequestNextTitle: root.stepTitle(1)
+    }
+
+    // 上/下一个条目：SACD 是上/下一曲，蓝光与 DVD 是上/下一个标题（语义对齐）。
+    // 跳过不可播的条目（SACD 的多声道区），到头就停，不循环。
+    function stepTitle(delta) {
+        var d = root.activeDisc
+        if (!d || !d.discOpen)
+            return
+        var i = d.currentIndex >= 0 ? d.currentIndex : d.mainTitleIndex
+        for (var k = i + delta; k >= 0 && k < d.playlists.length; k += delta) {
+            if (d.playlists[k].playable !== false) {
+                d.playIndex(k)
+                return
+            }
+        }
     }
 
     // 当前打开的碟。蓝光与 DVD 两个 Controller 的 QML 接口是对齐的（鸭子类型），
@@ -67,16 +103,25 @@ ApplicationWindow {
         id: titlePanel
         disc: root.activeDisc
         fmt: controls.fmt
+        // 面板开着时播控条必须完整可用：给它让出高度，并且不再自动隐藏。
+        bottomReserve: controls.visible ? controls.implicitHeight : 0
         // 面板开合没有提示条可看，无屏幕录制权限时它在日志里是完全隐形的——
         // 验「按 T 有没有反应」曾只能靠临时探针。并进 MD_LOG_UI 常驻，零行为改动。
-        onOpened: if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 打开")
-        onClosed: if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 关闭")
+        onOpened: {
+            controls.shouldShow = true
+            hideControls.stop()
+            if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 打开")
+        }
+        onClosed: {
+            hideControls.restart()
+            if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 关闭")
+        }
     }
 
     Timer {
         id: hideControls
         interval: 2500
-        onTriggered: if (!Player.paused && !controls.seekBar.dragging) controls.shouldShow = false
+        onTriggered: if (!Player.paused && !controls.seekBar.dragging && !titlePanel.opened) controls.shouldShow = false
     }
 
     MouseArea {
@@ -110,6 +155,28 @@ ApplicationWindow {
         toast.show(qsTr("已载入%1：%2（%3 条标题）").arg(kind).arg(disc.discName).arg(disc.playlists.length))
         if (disc.takeTitleHint())
             titleHint.restart()
+        subHintPending = true
+    }
+
+    // 碟上有字幕、当前却是关着的——载入后提示一次去哪儿开（issue #3 方案 D）。
+    // 轨道表要等 mpv 载入完才有，所以挂在 tracksChanged 上，且每张碟只提示一次。
+    property bool subHintPending: false
+    Connections {
+        target: Player
+        function onTracksChanged() {
+            if (!root.subHintPending || Player.subtitleTracks.length === 0)
+                return
+            if (Player.subtitleTrackId >= 0)
+                { root.subHintPending = false; return }
+            root.subHintPending = false
+            subHint.restart()
+        }
+    }
+    Timer {
+        id: subHint
+        interval: 3600
+        onTriggered: toast.show(qsTr("这张碟有 %1 条字幕，在播控条的「字幕」下拉框里选")
+                                .arg(Player.subtitleTracks.length))
     }
 
     Connections {
@@ -265,6 +332,15 @@ ApplicationWindow {
     Shortcut { sequence: "m"; enabled: !resumeDialog.opened; onActivated: Player.setMuted(!Player.muted) }
     Shortcut { sequence: "s"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(false) }
     Shortcut { sequence: "Shift+S"; enabled: !resumeDialog.opened; onActivated: Player.screenshot(true) }
+    Shortcut { sequence: "PgUp"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
+               onActivated: root.stepTitle(-1) }
+    Shortcut { sequence: "PgDown"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
+               onActivated: root.stepTitle(1) }
+    // mpv 的老习惯：< / > 也走上/下一个，省得只认 PgUp/PgDn。
+    Shortcut { sequence: "<"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
+               onActivated: root.stepTitle(-1) }
+    Shortcut { sequence: ">"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
+               onActivated: root.stepTitle(1) }
     Shortcut { sequence: "t"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
                onActivated: titlePanel.opened ? titlePanel.close() : titlePanel.open() }
     // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。

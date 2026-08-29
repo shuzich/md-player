@@ -22,8 +22,7 @@ QString describe(const AreaInfo& area, const TrackInfo& t) {
 
 } // namespace
 
-SacdController::SacdController(md::core::PlayerController* player, QObject* parent)
-    : QObject(parent), player_(player) {
+SacdController::SacdController(md::core::PlayerController* player, QObject* parent) : QObject(parent), player_(player) {
     hideShortTitles_ = md::media::hideShortTitlesSetting();
     connect(player_, &md::core::PlayerController::playlistPosChanged, this, &SacdController::onPlaylistPos);
     connect(player_, &md::core::PlayerController::fileLoaded, this, &SacdController::flushQueue);
@@ -60,7 +59,7 @@ void SacdController::onPlaylistPos() {
     emit currentIndexChanged();
 }
 
-bool SacdController::openPath(const QString& path) {
+bool SacdController::openPath(const QString& path, const QString& volumeLabel) {
     DiscInfo info = probe(path);
     if (!info.ok) {
         disc_ = DiscInfo{};
@@ -70,10 +69,14 @@ bool SacdController::openPath(const QString& path) {
         emit errorOccurred(info.error.isEmpty() ? QString::fromUtf8(md::strings::kSacdOpenFailed) : info.error);
         return false;
     }
-    // 专辑名降级链：碟内 SACDText → ISO9660 卷标（由指纹层给）→ 文件名去扩展名。
+    // 专辑名降级链：碟内 master text → ISO9660 卷标 →「未命名 SACD」（D-049）。
     // 手头三张 Sarah Brightman 就是碟上没有 master text 的实例，不给降级会显示空白。
+    // 刻意**不**退到文件名：文件名是下载者起的，冒充碟内元数据会误导，
+    // 而「未命名」至少是诚实的。
     if (info.album.isEmpty())
-        info.album = QFileInfo(path).completeBaseName();
+        info.album = volumeLabel.trimmed();
+    if (info.album.isEmpty())
+        info.album = QString::fromUtf8(md::strings::kSacdUnnamed);
 
     disc_ = info;
     currentIndex_ = -1;
