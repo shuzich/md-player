@@ -64,7 +64,9 @@
 - `{"cmd":"read","area":a,"track":t,"offset":o,"length":l}` → 二进制帧。DSD 音轨为线性映射；DST 音轨由 helper 实时解码，随机 seek 允许解码追赶，helper 可自行落临时缓存换取后续 seek 速度。
 - `{"cmd":"close"}` 释放当前碟；`{"cmd":"quit"}` 让 helper 退出。
 - 播放侧：`mpv_stream_cb_add_ro("sacd", ...)` 注册协议，SacdClient 将 URI 映射到 helper 会话，实现 read/seek/size 回调。
-- M1 范围：2ch 立体声区；多声道区枚举出来但 UI 置灰（P2 开放）。
+- M1 范围：2ch 立体声区；多声道区枚举出来但 UI 置灰（P2 开放）——置灰条目仍可点，点了给出明确文案而不是没反应。
+- 曲目无缝：选中一曲时把同区后续曲目排进 mpv 播放列表，`gapless-audio` 才生效；append 必须等 `MPV_EVENT_FILE_LOADED`（D-045）。
+- 随机 seek：帧号 → 起始扇区的增量索引，只解析扇区头不解码（D-043）。
 - 增益：见 CLAUDE.md 深坑 #5。
 
 ## 碟片指纹 v1（M1 只计算 + 落日志）

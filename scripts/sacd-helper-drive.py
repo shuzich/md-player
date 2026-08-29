@@ -163,6 +163,10 @@ def main():
     ap.add_argument("--all", action="store_true", help="对 MD_TEST_MEDIA 下每张碟各跑一遍")
     ap.add_argument("--determinism", action="store_true", help="同一轨跑两遍，逐字节比对")
     ap.add_argument("--kill-test", action="store_true", help="播放中 kill -9 helper，看驱动侧行为")
+    ap.add_argument("--seek-bench", action="store_true",
+                    help="先顺序读一段把索引建起来，再在已索引区间做回退 seek 并统计耗时；"
+                         "最后测一次未索引区间的前进 seek（追赶）")
+    ap.add_argument("--area", type=int, default=None, help="只测某个区")
     args = ap.parse_args()
 
     media = os.environ.get("MD_TEST_MEDIA")
@@ -181,6 +185,54 @@ def main():
 
     # 头、块边界、块中间、跨块、接近尾部——覆盖映射里所有分支
     ranges = [(0, 92), (92, 8192), (92 + 4096, 4096), (92 + 8192 * 100 + 123, 65536)]
+
+    if args.seek_bench:
+        import statistics
+        for iso in isos:
+            print(f"### {os.path.basename(iso)}")
+            h = Helper(args.exe)
+            info = h.call(cmd="open", path=iso)
+            for a in info["areas"]:
+                if args.area is not None and a["area"] != args.area:
+                    continue
+                st = h.call(cmd="stat", area=a["area"], track=args.track)
+                size = st["dsf_size"]
+                tag = f"区 {a['area']} {a['kind']} {a['channels']}ch dst={a['dst']}"
+                # 1) 顺序读前 1/8，等价于「播了这么久」，索引随之建起来
+                warm = 92
+                limit = 92 + (size - 92) // 8
+                t0 = time.time()
+                while warm < limit:
+                    n = min(1 << 20, limit - warm)
+                    h.read(a["area"], args.track, warm, n)
+                    warm += n
+                seq = time.time() - t0
+                played = (limit - 92) / (size - 92)
+                print(f"  {tag}: 顺序读前 {played * 100:.0f}%（{(limit - 92) / 1e6:.0f} MB）耗时 {seq:.2f}s")
+                # 2) 已索引区间内的回退 seek
+                lat = []
+                for i in range(12):
+                    off = 92 + int((limit - 92) * ((11 - i) / 12.0))
+                    t0 = time.time()
+                    h.read(a["area"], args.track, off, 65536)
+                    lat.append((time.time() - t0) * 1000)
+                lat_sorted = sorted(lat)
+                print(f"      已索引区间回退 seek ×{len(lat)}：中位 {statistics.median(lat):.0f}ms  "
+                      f"最快 {lat_sorted[0]:.0f}ms  最慢 {lat_sorted[-1]:.0f}ms  "
+                      f"{'✓ 达标（D-013 T2 口径 <100ms）' if statistics.median(lat) < 100 else '✗ 未达标'}")
+                # 3) 未索引区间的前进 seek（追赶）
+                far = size - 200000
+                t0 = time.time()
+                h.read(a["area"], args.track, far, 65536)
+                first = (time.time() - t0) * 1000
+                t0 = time.time()
+                h.read(a["area"], args.track, far, 65536)
+                again = (time.time() - t0) * 1000
+                print(f"      未索引区间前进 seek 到 {far / 1e6:.0f} MB（{100 * far / size:.0f}%）："
+                      f"首次 {first:.0f}ms（含索引追赶），同点再读 {again:.0f}ms")
+            h.close()
+            print()
+        return
 
     if args.kill_test:
         iso = isos[0]

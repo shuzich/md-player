@@ -6,6 +6,7 @@
 #include "media/bluray/BlurayController.h"
 #include "media/dvd/DvdController.h"
 #include "media/router/DiscRouter.h"
+#include "media/sacd/SacdController.h"
 
 #include <QDebug>
 #include <QDir>
@@ -40,8 +41,9 @@ const char* kindName(Kind k) {
 } // namespace
 
 RouterController::RouterController(md::core::PlayerController* player, md::media::bluray::BlurayController* bluray,
-                                   md::media::dvd::DvdController* dvd, QObject* parent)
-    : QObject(parent), player_(player), bluray_(bluray), dvd_(dvd) {}
+                                   md::media::dvd::DvdController* dvd, md::media::sacd::SacdController* sacd,
+                                   QObject* parent)
+    : QObject(parent), player_(player), bluray_(bluray), dvd_(dvd), sacd_(sacd) {}
 
 void RouterController::openUrl(const QUrl& url) {
     // 非本地 URL（http/rtsp/…）没有碟根可谈，直接交给 mpv——别拿去做文件系统
@@ -101,9 +103,19 @@ void RouterController::openPath(const QString& path) {
         return;
 
     case Kind::Sacd:
-        // M1 只识别，不播放（M1-PLAN T5 裁决）。指纹照算，落日志。
+        // T6 阶段 2 起真播。指纹的 label 用碟内专辑名（拿不到时由 SacdController
+        // 按降级链定），比 ISO9660 卷标有意义得多——T5 遗留 5 就此关闭。
+        if (sacd_ && sacd_->openPath(r.target)) {
+            bluray_->closeDisc();
+            dvd_->closeDisc();
+            md::media::Fingerprint fp = md::media::computeSacd(r.target);
+            if (!sacd_->albumLabel().isEmpty())
+                fp.label = sacd_->albumLabel();
+            logFingerprint(fp);
+            return;
+        }
+        // openPath 失败时 SacdController 已经发过具体文案，这里不再叠一层。
         logFingerprint(md::media::computeSacd(r.target));
-        emit errorOccurred(QString::fromUtf8(md::strings::kSacdNotSupportedYet));
         return;
 
     case Kind::Bluray:

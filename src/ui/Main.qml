@@ -59,7 +59,8 @@ ApplicationWindow {
     // 当前打开的碟。蓝光与 DVD 两个 Controller 的 QML 接口是对齐的（鸭子类型），
     // 面板拿到哪一个都照常工作。两者都没开时退回 Bluray——它此时报 discOpen=false、
     // 列表为空，绑定不会踩到 null。
-    readonly property var activeDisc: Bluray.discOpen ? Bluray : (Dvd.discOpen ? Dvd : Bluray)
+    // 三种碟共用 TitlePanel（鸭子类型对齐）。一次只持有一张，所以取第一个 discOpen 的。
+    readonly property var activeDisc: Bluray.discOpen ? Bluray : (Dvd.discOpen ? Dvd : (Sacd.discOpen ? Sacd : Bluray))
 
     // 标题·章节面板（T3 蓝光 / T4 DVD 共用）。非模态，开着也不影响播控与快捷键。
     TitlePanel {
@@ -124,6 +125,7 @@ ApplicationWindow {
         function onDiscChanged() {
             if (Bluray.discOpen) {
                 Dvd.closeDisc()          // 一次只持有一张碟
+                Sacd.closeDisc()
                 root.discOpened(qsTr("蓝光碟"), Bluray)
             }
         }
@@ -135,7 +137,23 @@ ApplicationWindow {
         function onDiscChanged() {
             if (Dvd.discOpen) {
                 Bluray.closeDisc()
+                Sacd.closeDisc()
                 root.discOpened(qsTr("DVD"), Dvd)
+            }
+        }
+    }
+
+    Connections {
+        target: Sacd
+        function onErrorOccurred(msg) { toast.show(msg) }
+        function onDiscChanged() {
+            if (Sacd.discOpen) {
+                Bluray.closeDisc()
+                Dvd.closeDisc()
+                root.discOpened(qsTr("SACD"), Sacd)
+                // 碟类资源默认播主标题；SACD 的「主标题」就是立体声区第一曲。
+                if (Sacd.mainTitleIndex >= 0)
+                    Sacd.playIndex(Sacd.mainTitleIndex)
             }
         }
     }
@@ -251,6 +269,13 @@ ApplicationWindow {
                onActivated: titlePanel.opened ? titlePanel.close() : titlePanel.open() }
     // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。
     Shortcut { sequence: "Escape"; enabled: titlePanel.opened; onActivated: titlePanel.close() }
+    // SACD 的 +6dB 增益临时开关（深坑 #5）。正式入口在 T7 设置页，这里先给个快捷键，
+    // 好让「开/关 A/B 是否可闻」这条人工验收跑得起来。
+    Shortcut { sequence: "g"; enabled: !resumeDialog.opened && Sacd.discOpen
+               onActivated: {
+                   Player.setSacdGain(!Player.sacdGain)
+                   toast.show(Player.sacdGain ? qsTr("SACD 增益 +6dB：开") : qsTr("SACD 增益 +6dB：关"))
+               } }
     Shortcut { sequence: StandardKey.FullScreen
                onActivated: root.visibility = (root.visibility === Window.FullScreen ? Window.Windowed : Window.FullScreen) }
 }

@@ -23,7 +23,12 @@ inline constexpr auto kPathNotFound = "找不到这个路径，或者没有读�
 inline constexpr auto kDiscImageTruncated = "这个镜像不完整（下载未完成或已损坏），请换一份完整的镜像";
 // %1 由调用方填成候选碟根的相对路径列表。绝不替用户挑一个打开。
 inline constexpr auto kMultipleDiscRoots = "这个文件夹里有多张碟：%1。请直接拖入其中一张";
-inline constexpr auto kSacdNotSupportedYet = "识别到 SACD 碟，播放支持将在后续版本提供";
+// T6 阶段 2 起 SACD 可播；kSacdNotSupportedYet 随之退役（D-027 的提示只在 T5 期间存在）。
+inline constexpr auto kSacdOpenFailed = "这张 SACD 读不出来，可能镜像不完整或不是标准 Scarlet Book 结构";
+inline constexpr auto kSacdMultichannelNotYet = "多声道区暂不支持播放，请选择立体声区的曲目";
+inline constexpr auto kSacdHelperLost = "SACD 解码进程意外退出，播放已中断";
+inline constexpr auto kSacdGainOn = "SACD 增益 +6dB：开";
+inline constexpr auto kSacdGainOff = "SACD 增益 +6dB：关";
 inline constexpr auto kNoDiscInFolder = "这个文件夹里没有碟（向下 3 层都没找到 BDMV 或 VIDEO_TS）";
 
 // 蓝光面板

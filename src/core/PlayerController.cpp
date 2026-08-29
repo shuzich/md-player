@@ -2,6 +2,7 @@
 
 #include "app/strings.h"
 #include "core/ResumeStore.h"
+#include "media/sacd/SacdStream.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -11,6 +12,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QVariantMap>
 
 #include <stdexcept>
@@ -143,6 +145,9 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
     if (mpv_initialize(mpv_) < 0)
         throw std::runtime_error("mpv_initialize 失败");
 
+    // sacd:// 由本进程自己供给字节（T6 阶段 2）。必须在 initialize 之后注册。
+    md::media::sacd::registerProtocol(mpv_);
+
     observe("time-pos", MPV_FORMAT_DOUBLE);
     observe("duration", MPV_FORMAT_DOUBLE);
     observe("pause", MPV_FORMAT_FLAG);
@@ -155,6 +160,19 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
     observe("track-list", MPV_FORMAT_NODE);
     observe("aid", MPV_FORMAT_INT64);
     observe("sid", MPV_FORMAT_INT64);
+    observe("playlist-pos", MPV_FORMAT_INT64);
+
+    // helper 死了之后 mpv 只是静默停住、不发 end-file，用户看不到任何解释。
+    // 解复用线程碰不了 QObject，所以让 GUI 侧每秒收一次旗标（T6 阶段 2 实测发现）。
+    auto* sacdWatch = new QTimer(this);
+    sacdWatch->setInterval(1000);
+    connect(sacdWatch, &QTimer::timeout, this, [this]() {
+        if (md::media::sacd::takeStreamFailure()) {
+            qWarning("SACD helper 供流中断");
+            emit errorOccurred(QString::fromUtf8(md::strings::kSacdHelperLost));
+        }
+    });
+    sacdWatch->start();
 
     resume_ = new ResumeStore(this);
 
@@ -204,6 +222,7 @@ void PlayerController::drainEvents() {
             }
             refreshChapters();
             refreshTracks();
+            emit fileLoaded();
             // 有断点记录就问用户，不擅自跳转。
             if (pendingChapter_ >= 1) {
                 // 用户点的是具体章节：直接跳，且不再弹断点询问。
@@ -246,6 +265,14 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
     // aid / sid 必须在下面的空指针闸门之前处理：轨道关闭时 mpv 发的是 MPV_FORMAT_NONE
     // 事件，data 为空指针，会被闸门原样丢掉——「字幕：关」于是在 mpv 侧生效了、
     // 播控条却还显示着上一条字幕轨（issue #2）。
+    if (name == QLatin1String("playlist-pos")) {
+        const int p = prop->format == MPV_FORMAT_INT64 ? int(*static_cast<int64_t*>(prop->data)) : -1;
+        if (p != playlistPos_) {
+            playlistPos_ = p;
+            emit playlistPosChanged();
+        }
+        return;
+    }
     if (name == QLatin1String("aid")) {
         audioTrackId_ = trackIdFromEvent(prop);
         emit audioTrackIdChanged();
@@ -351,12 +378,16 @@ void PlayerController::notifyRenderReady() {
 void PlayerController::load(const QString& uri) {
     pendingChapter_ = -1;
     screenshotStem_.clear();
+    sacdActive_ = false;
+    applySacdGain();
     loadInternal(uri, uri);
 }
 
 void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int startChapter) {
     if (!mpv_ || deviceRoot.isEmpty() || playlistId < 0)
         return;
+    sacdActive_ = false;
+    applySacdGain();
     // bluray-device 是全局选项，必须在 loadfile 之前设好；目录与 ISO 路径 libbluray 都能直接吃。
     const QByteArray rawDevice = deviceRoot.toUtf8();
     if (const int rc = mpv_set_property_string(mpv_, "bluray-device", rawDevice.constData()); rc < 0) {
@@ -375,6 +406,8 @@ void PlayerController::loadBluray(const QString& deviceRoot, int playlistId, int
 void PlayerController::loadDvd(const QString& deviceRoot, int titleNumber, int startChapter) {
     if (!mpv_ || deviceRoot.isEmpty() || titleNumber < 1)
         return;
+    sacdActive_ = false;
+    applySacdGain();
     const QByteArray rawDevice = deviceRoot.toUtf8();
     if (const int rc = mpv_set_property_string(mpv_, "dvd-device", rawDevice.constData()); rc < 0) {
         emit errorOccurred(QString::fromUtf8(mpv_error_string(rc)));
@@ -389,6 +422,60 @@ void PlayerController::loadDvd(const QString& deviceRoot, int titleNumber, int s
     qInfo("DVD 播放: %s | title=%d (%s) | 起始章节=%d", qUtf8Printable(deviceRoot), titleNumber, qUtf8Printable(uri),
           startChapter);
     loadInternal(uri, QStringLiteral("%1#%2").arg(deviceRoot, uri));
+}
+
+void PlayerController::loadSacd(const QString& isoPath, int area, int track) {
+    if (!mpv_ || isoPath.isEmpty() || track < 1)
+        return;
+    pendingChapter_ = -1;
+    screenshotStem_.clear(); // SACD 没有画面，截图无从谈起
+    const QString uri = md::media::sacd::makeUri(isoPath, area, track);
+    sacdActive_ = true;
+    applySacdGain();
+    qInfo("SACD 播放: %s | area=%d track=%d | uri=%s", qUtf8Printable(isoPath), area, track, qUtf8Printable(uri));
+    loadInternal(uri, QStringLiteral("%1#area%2/track%3").arg(isoPath).arg(area).arg(track));
+}
+
+void PlayerController::enqueueSacd(const QString& isoPath, int area, int track) {
+    if (!mpv_ || isoPath.isEmpty() || track < 1)
+        return;
+    const QString uri = md::media::sacd::makeUri(isoPath, area, track);
+    const QByteArray raw = uri.toUtf8();
+    const char* args[] = {"loadfile", raw.constData(), "append", nullptr};
+    if (const int rc = mpv_command(mpv_, args); rc < 0)
+        qWarning("SACD 排队失败: %s (%s)", qUtf8Printable(uri), mpv_error_string(rc));
+}
+
+int PlayerController::playlistCount() const {
+    if (!mpv_)
+        return 0;
+    int64_t n = 0;
+    if (mpv_get_property(mpv_, "playlist-count", MPV_FORMAT_INT64, &n) < 0)
+        return 0;
+    return int(n);
+}
+
+void PlayerController::setSacdGain(bool on) {
+    if (sacdGain_ == on)
+        return;
+    sacdGain_ = on;
+    applySacdGain();
+    emit sacdGainChanged();
+}
+
+// DSF 经 ffmpeg 解为 PCM 后比 foobar2000 + SACD 插件低约 6dB（CLAUDE.md 深坑 #5）。
+// 用 lavfi 的 volume 滤镜补，只在放 SACD 时挂上，换回别的资源就摘掉——
+// 免得给普通片源平白加 6dB。
+void PlayerController::applySacdGain() {
+    if (!mpv_)
+        return;
+    const char* args_clear[] = {"af", "remove", "@sacdgain", nullptr};
+    mpv_command(mpv_, args_clear);
+    if (!sacdActive_ || !sacdGain_)
+        return;
+    const char* args_add[] = {"af", "add", "@sacdgain:lavfi=[volume=6dB]", nullptr};
+    if (const int rc = mpv_command(mpv_, args_add); rc < 0)
+        qWarning("SACD 增益挂载失败: %s", mpv_error_string(rc));
 }
 
 void PlayerController::loadInternal(const QString& uri, const QString& resumeKey) {

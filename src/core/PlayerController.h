@@ -31,6 +31,8 @@ class PlayerController : public QObject {
     // MD_LOG_UI=1 时 QML 把提示条文案打到 stdout。截屏权限受限时，这是校验
     // 「用户到底看到了哪句话」的唯一客观手段——T3 的加密盘文案就是这么验的。
     Q_PROPERTY(bool uiLogEnabled READ uiLogEnabled CONSTANT)
+    Q_PROPERTY(bool sacdGain READ sacdGain NOTIFY sacdGainChanged)
+    Q_PROPERTY(int playlistPos READ playlistPos NOTIFY playlistPosChanged)
 
 public:
     explicit PlayerController(QObject* parent = nullptr);
@@ -65,6 +67,17 @@ public:
     // DVD：先把 dvd-device 指到碟根（VIDEO_TS 的父目录或 ISO），再播 dvd://<N>。
     // titleNumber 是 libdvdread 口径的 1 起编号，mpv 的 dvd:// 是 0 起，这里负责换算（D-021）。
     Q_INVOKABLE void loadDvd(const QString& deviceRoot, int titleNumber, int startChapter = -1);
+    // SACD：走自注册的 sacd:// 协议，实际字节由独立的 helper 进程供给（ARCHITECTURE §SACD）。
+    // area 是 helper 侧的区下标，track 从 1 起。
+    Q_INVOKABLE void loadSacd(const QString& isoPath, int area, int track);
+    // 把同一区的后续曲目排进 mpv 播放列表。gapless-audio 只对播放列表内的切换生效，
+    // 每首都用 loadfile replace 的话它就是摆设（T6 阶段 2 实测）。
+    Q_INVOKABLE void enqueueSacd(const QString& isoPath, int area, int track);
+    // SACD 的 +6dB 增益（深坑 #5）。默认开；临时开关走快捷键 G，正式安家 T7 设置页。
+    Q_INVOKABLE void setSacdGain(bool on);
+    bool sacdGain() const { return sacdGain_; }
+    int playlistPos() const { return playlistPos_; }
+    Q_INVOKABLE int playlistCount() const;
     // 渲染上下文就绪前收到的加载请求先挂起。mpv 在初始化视频输出时若没有
     // render context，会直接把视频链路关掉（表现为只出声音、dwidth 永远不可用）。
     void setPendingUri(const QString& uri);
@@ -101,6 +114,11 @@ signals:
     void audioTrackIdChanged();
     void subtitleTrackIdChanged();
     void currentUriChanged();
+    void sacdGainChanged();
+    void playlistPosChanged();
+    // 一个条目真正载入完毕。往播放列表追加后续条目必须等这一刻——
+    // loadfile replace 是异步的，抢在它前面 append 会被连锅端掉（T6 阶段 2 实测）。
+    void fileLoaded();
     // 载入的文件有可续播记录时发出，QML 弹询问框。
     void resumeAvailable(double position, double duration);
     void screenshotSaved(const QString& path, bool withSubtitles);
@@ -109,6 +127,9 @@ signals:
 
 private slots:
     void drainEvents();
+
+private:
+    void applySacdGain();
 
 private:
     static void onWakeup(void* ctx);
@@ -133,6 +154,9 @@ private:
     // 碟类资源的截图文件名词干。碟内没有 META 时 mpv 的 media-title 会退化成
     // 「1」这种无意义值（bd://mpls/1 的末段），故由 loadBluray 显式给定。
     QString screenshotStem_;
+    bool sacdGain_ = true;
+    bool sacdActive_ = false;
+    int playlistPos_ = -1;
     int pendingChapter_ = -1;
     double pendingResumePos_ = 0.0;
     // seek 手感埋点（MD_LOG_SEEK=1 时启用）：记录最近一次 seek 的发出时刻与目标，

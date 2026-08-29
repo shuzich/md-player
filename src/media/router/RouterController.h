@@ -16,6 +16,9 @@ class BlurayController;
 namespace md::media::dvd {
 class DvdController;
 }
+namespace md::media::sacd {
+class SacdController;
+}
 
 namespace md::media::router {
 
@@ -24,7 +27,8 @@ class RouterController : public QObject {
 
 public:
     RouterController(md::core::PlayerController* player, md::media::bluray::BlurayController* bluray,
-                     md::media::dvd::DvdController* dvd, QObject* parent = nullptr);
+                     md::media::dvd::DvdController* dvd, md::media::sacd::SacdController* sacd,
+                     QObject* parent = nullptr);
 
     // 打开任意路径。总是「处理掉」——不认的东西也会落到 mpv 或给出明确文案，
     // 所以没有返回值，调用方不需要再兜底。
@@ -42,6 +46,7 @@ private:
     md::core::PlayerController* player_ = nullptr;
     md::media::bluray::BlurayController* bluray_ = nullptr;
     md::media::dvd::DvdController* dvd_ = nullptr;
+    md::media::sacd::SacdController* sacd_ = nullptr;
 };
 
 } // namespace md::media::router

@@ -72,6 +72,13 @@ qt_add_executable(md-player
     src/media/Fingerprint.h
     src/media/router/DiscRouter.cpp
     src/media/router/DiscRouter.h
+    src/media/sacd/SacdProbe.cpp
+    src/media/sacd/SacdProbe.h
+    src/media/sacd/SacdStream.cpp
+    src/media/sacd/SacdStream.h
+    src/media/sacd/SacdController.cpp
+    src/media/sacd/SacdController.h
+    src/media/sacd/SacdTypes.h
     src/media/router/RouterController.cpp
     src/media/router/RouterController.h
     src/media/bluray/BlurayDisc.cpp

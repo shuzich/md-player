@@ -135,13 +135,17 @@ Drawer {
             // 注意用 modelData.index（碟内原始下标），不是 entry.index（过滤后列表的位置）。
             readonly property int discIndex: entry.modelData.index
             readonly property bool isCurrent: entry.discIndex === root.disc.currentIndex
+            // SACD 的多声道区 M1 只枚举不播放（ARCHITECTURE §SACD）。蓝光/DVD 的条目
+            // 没有 playable 字段，undefined !== false，于是照常可点——不必给它们加字段。
+            readonly property bool playable: entry.modelData.playable !== false
             property bool expanded: entry.modelData.isMainTitle // 主标题默认展开
 
             Rectangle {
                 width: parent.width
                 height: 58
                 radius: 5
-                color: entry.isCurrent ? "#3348a0ff" : (rowHover.hovered ? "#1affffff" : "transparent")
+                color: entry.isCurrent ? "#3348a0ff" : (entry.playable && rowHover.hovered ? "#1affffff" : "transparent")
+                opacity: entry.playable ? 1.0 : 0.42
 
                 HoverHandler { id: rowHover }
 
@@ -154,6 +158,8 @@ Drawer {
                         rightMargin: entry.modelData.chapterCount > 1 ? 32 : 0
                     }
                     TapHandler { onTapped: root.disc.playIndex(entry.discIndex) }
+                    // 置灰的条目仍然可点——点了会给出「多声道区暂不支持」的明确文案，
+                    // 比点了没反应强（T5 误拖普通文件夹那条口径的延续）。
                 }
 
                 Row {

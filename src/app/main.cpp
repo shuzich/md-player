@@ -3,6 +3,7 @@
 #include "media/bluray/BlurayController.h"
 #include "media/dvd/DvdController.h"
 #include "media/router/RouterController.h"
+#include "media/sacd/SacdController.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -35,12 +36,14 @@ int main(int argc, char* argv[]) {
 
     md::media::bluray::BlurayController bluray(&controller);
     md::media::dvd::DvdController dvd(&controller);
-    md::media::router::RouterController router(&controller, &bluray, &dvd);
+    md::media::sacd::SacdController sacd(&controller);
+    md::media::router::RouterController router(&controller, &bluray, &dvd, &sacd);
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("Player"), &controller);
     engine.rootContext()->setContextProperty(QStringLiteral("Bluray"), &bluray);
     engine.rootContext()->setContextProperty(QStringLiteral("Dvd"), &dvd);
+    engine.rootContext()->setContextProperty(QStringLiteral("Sacd"), &sacd);
     engine.rootContext()->setContextProperty(QStringLiteral("Router"), &router);
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app, []() { QCoreApplication::exit(-1); },
