@@ -174,6 +174,9 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
     });
     sacdWatch->start();
 
+    if (const QByteArray lvl = qgetenv("MD_LOG_MPV"); !lvl.isEmpty())
+        mpv_request_log_messages(mpv_, lvl.constData());
+
     resume_ = new ResumeStore(this);
 
     connect(this, &PlayerController::mpvWokeUp, this, &PlayerController::drainEvents, Qt::QueuedConnection);
@@ -245,8 +248,15 @@ void PlayerController::drainEvents() {
                 emit errorOccurred(QString::fromUtf8(mpv_error_string(ef->error)));
             break;
         }
-        case MPV_EVENT_LOG_MESSAGE:
+        case MPV_EVENT_LOG_MESSAGE: {
+            // MD_LOG_MPV=<级别> 时把 mpv 自己的日志转出来。查音频链路（ao 重启、
+            // 欠载、滤镜重配）只能靠它——这些事件 mpv 不发结构化事件，只写日志。
+            auto* m = static_cast<mpv_event_log_message*>(event->data);
+            // 带上墙钟：查「seek 后过几秒才出声」这类问题，时间差就是全部证据。
+            qInfo("[%8lldms][mpv/%s/%s] %s", seekClock().elapsed(), m->prefix, m->level,
+                  QByteArray(m->text).trimmed().constData());
             break;
+        }
         default:
             break;
         }
@@ -467,22 +477,42 @@ void PlayerController::setSacdGain(bool on) {
 // 用 lavfi 的 volume 滤镜补，只在放 SACD 时挂上，换回别的资源就摘掉——
 // 免得给普通片源平白加 6dB。
 //
-// **volume 后面必须跟 alimiter**：DSD 母带常压到 -3.6 dBFS（ffmpeg 口径），再加
-// 6dB 就冲到 +3.5 dBFS，音频设备只能硬削，听感是响处一片杂音——这正是阶段 2
-// 人工验收报的「seek 后先出杂音」（实测整轨 160578 个样本越界，占 0.046%）。
-// 限幅器把峰值压到 -0.2 dBFS，只动那 0.046% 的峰，其余一个样本不改（D-047）。
+// 滤镜串的顺序是有讲究的，三段缺一不可（D-053）：
+//
+// 1) **aresample=88200 必须排在最前**。DSD 解出来是 352800 Hz，里面堆着 DSD 固有的
+//    超声整形噪声（实测 30 kHz 以上 mean -30.1 dB / peak -14.3 dB）。不重采样的话
+//    mpv 会照原样向 CoreAudio 要 352800 Hz，而内置扬声器只支持 44100/48000/88200/
+//    96000——设备端只能自己做 7.35 倍降采样，那层抗混叠滤波不由我们控制，超声噪声
+//    整片折回可听带，听感就是「沙」。而且每次 AO 重启（暂停/恢复、seek、换轨）都会
+//    重新起这个转换器，所以杂音正好出现在这几个时刻。88200 是本机设备直接支持的
+//    速率，也是 352800 的整数分频；即便别的机器不支持，此时信号已带限，
+//    CoreAudio 再转一次也不会有混叠。
+// 2) volume=6dB：DSF 经 ffmpeg 解为 PCM 后比 foobar2000 + SACD 插件低约 6dB
+//    （CLAUDE.md 深坑 #5）。**必须排在重采样之后**，否则增益作用在还带着超声噪声的
+//    信号上，白白抬高设备端要处理的峰值。
+// 3) alimiter：DSD 母带常压到 -3.6 dBFS，加 6dB 就冲到 +3.5 dBFS，设备只能硬削
+//    （实测整轨 160578 个样本越界，占 0.046%）。限幅器把峰值压到 -0.2 dBFS。
+//    **同样必须在重采样之后**——否则它会被超声噪声的峰值牵着走，对可听内容做出
+//    莫名其妙的增益起伏。
+// 末尾 aformat 保住浮点：不加它 mpv 会把整条链路谈判成 s16（实测）。
 void PlayerController::applySacdGain() {
     if (!mpv_)
         return;
-    const char* args_clear[] = {"af", "remove", "@sacdgain", nullptr};
-    mpv_command(mpv_, args_clear);
+    if (sacdFilterAttached_) {
+        const char* args_clear[] = {"af", "remove", "@sacdgain", nullptr};
+        mpv_command(mpv_, args_clear);
+        sacdFilterAttached_ = false;
+    }
     if (!sacdActive_ || !sacdGain_)
         return;
-    const char* args_add[] = {
-        "af", "add", "@sacdgain:lavfi=[volume=6dB,alimiter=limit=0.977:level=disabled,aformat=sample_fmts=fltp]",
-        nullptr};
+    const char* args_add[] = {"af", "add",
+                              "@sacdgain:lavfi=[aresample=88200,volume=6dB,alimiter=limit=0.977:level=disabled,"
+                              "aformat=sample_fmts=fltp]",
+                              nullptr};
     if (const int rc = mpv_command(mpv_, args_add); rc < 0)
-        qWarning("SACD 增益挂载失败: %s", mpv_error_string(rc));
+        qWarning("SACD 音频链挂载失败: %s", mpv_error_string(rc));
+    else
+        sacdFilterAttached_ = true;
 }
 
 void PlayerController::loadInternal(const QString& uri, const QString& resumeKey) {

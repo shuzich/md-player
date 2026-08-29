@@ -202,6 +202,7 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
 | `MD_SACD_DEBUG=1` | sacd-helper 打印 vendored 解析层的全部诊断（一律走 stderr） |
 | `MD_SACD_STDOUT_TEST=1` | sacd-helper 启动时故意用四种方式往 stdout 写字，用来实测保险闸（D-040） |
+| `MD_LOG_MPV=<级别>` | 把 mpv 自己的日志转出来（`v` / `debug`），带墙钟毫秒。查 AO 协商、缓存与 seek 行为只能靠它 |
 | `MD_SACD_DUMP=<目录>` | 把 mpv 经 `sacd://` 实际读到的字节按偏移写进稀疏文件（另附 `.log` 记每次读的 offset/len），用来和顺序导出的参照件逐字节对账 |
 
 ### 代码格式

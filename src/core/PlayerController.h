@@ -156,6 +156,7 @@ private:
     QString screenshotStem_;
     bool sacdGain_ = true;
     bool sacdActive_ = false;
+    bool sacdFilterAttached_ = false; // 没挂过就别 af remove，否则 mpv 每次都警告一行
     int playlistPos_ = -1;
     int pendingChapter_ = -1;
     double pendingResumePos_ = 0.0;

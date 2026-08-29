@@ -2,6 +2,7 @@
 
 #include "media/sacd/SacdProbe.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <QHash>
 #include <QMutex>
@@ -248,7 +249,8 @@ int64_t streamRead(void* cookie, char* buf, uint64_t nbytes) {
     if (s->dumpFd >= 0 && len) {
         ::pwrite(s->dumpFd, buf, len, off_t(s->pos));
         if (s->dumpLog)
-            fprintf(s->dumpLog, "%lld %u\n", (long long)s->pos, len);
+            fprintf(s->dumpLog, "%lld %u %lld\n", (long long)s->pos, len,
+                    (long long)QDateTime::currentMSecsSinceEpoch());
     }
     s->pos += len;
     return len;
