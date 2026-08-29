@@ -72,3 +72,7 @@ md-player-kickoff.zip
 
 # ---- 测试骨架的生成产物（生成脚本入库，产物不入库）----
 tests/fixtures/generated/
+
+# 驱动脚本被当模块导入时留下的字节码
+__pycache__/
+*.pyc

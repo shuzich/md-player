@@ -3,7 +3,8 @@ cmake_minimum_required(VERSION 3.26)
 project(md-player
     VERSION 0.1.0
     DESCRIPTION "MusicDisc Player — 本地实体碟资源统一播放器"
-    LANGUAGES CXX)
+    # C 是给 helper/sacd-helper 用的：vendored 的 scarletbook 与 DST 解码器都是 C（T6）。
+    LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -121,3 +122,8 @@ set_target_properties(md-player PROPERTIES
     WIN32_EXECUTABLE FALSE
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
+
+# SACD helper（T6）：独立进程，vendored GPL 代码物理隔离在 helper/ 下（D-006）。
+# 与 md-player 无任何链接关系，只通过管道说话。产物同样落在 build 根，便于驱动脚本调用。
+add_subdirectory(helper/sacd-helper)
+set_target_properties(sacd-helper PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

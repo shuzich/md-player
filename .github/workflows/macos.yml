@@ -70,3 +70,29 @@ jobs:
           fi
           echo "✓ 链接自编译 libmpv，且无解密库"
           ls -l build/md-player
+
+      # SACD helper 的冒烟：用自造骨架跑通协议 v1 的 open/stat/read，外加确定性比对。
+      # 真碟一律走 MD_TEST_MEDIA，CI 上不存在，所以这里只能靠骨架——它不含任何
+      # 音频内容，正好也把「数据不足时补零」那条路径覆盖掉（CLAUDE.md 深坑 #6）。
+      - name: SACD helper smoke (自造骨架，无版权内容)
+        run: |
+          python3 tests/fixtures/make_sacd_skeleton.py tests/fixtures/generated
+          scripts/sacd-helper-drive.py \
+            --iso tests/fixtures/generated/sacd-skeleton.iso \
+            --track 1 --determinism | tee sacd.txt
+          grep -q '✓ 确定性' sacd.txt \
+            || { echo "::error::sacd-helper 的 stat/read 不可复现"; exit 1; }
+          MD_SACD_STDOUT_TEST=1 scripts/sacd-helper-drive.py \
+            --iso tests/fixtures/generated/sacd-skeleton.iso --track 1 > guard.txt 2>/dev/null
+          grep -q 'dsf_size' guard.txt \
+            || { echo "::error::stdout 保险闸失效，帧流被污染"; cat guard.txt; exit 1; }
+          echo "✓ 协议 v1 冒烟通过，stdout 保险闸有效"
+
+      # helper 是独立进程，不该链任何 Qt / 播放栈，更不该出现解密库。
+      - name: Verify sacd-helper isolation
+        run: |
+          otool -L build/sacd-helper
+          if otool -L build/sacd-helper | grep -qiE 'Qt|libmpv|dvdcss|aacs|bdplus'; then
+            echo "::error::sacd-helper 的依赖闭包里出现了不该有的东西"; exit 1
+          fi
+          echo "✓ sacd-helper 依赖干净"

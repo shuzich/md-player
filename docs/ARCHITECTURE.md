@@ -56,9 +56,13 @@
 ## SACD helper 协议 v1
 
 - 形态：helper 为子进程，stdin/stdout 通信。控制面 JSON-lines；数据面为二进制帧（帧头 = 4 字节请求 id + 4 字节负载长度，小端）。
-- `{"cmd":"open","path":...}` → `{"album":..., "areas":[{"channels":2, "tracks":[{"index":1,"title":?,"performer":?,"seconds":n,"dst":bool}]}]}`（文本取自碟内 SACDText，允许缺省）
-- `{"cmd":"stat","area":a,"track":t}` → `{"dsf_size":n}`。helper 依据时长/声道生成**确定性 DSF 视图**（DSD+fmt+data 三段头共 92 字节 + 数据区），尺寸可预先精确计算。
+- 每条请求带 `id`（正整数，**< 2^31**）；控制响应回同一个 `id` 的 JSON 行，`read` 回同一个 `id` 的二进制帧。`read` 失败时帧头 id 的**最高位置 1**、负载为一行 JSON 错误对象——8 字节帧头的格式因此不变，调用方靠高位区分成功与失败。
+- 全部诊断走 **stderr**；helper 启动第一件事是把 fd 1 复制到私有 fd、再把 `stdout` 重定向到 stderr，任何库函数误写 stdout 都撕不到帧流。
+- `{"cmd":"open","path":...}` → `{"ok":true,"album":{"charset":n,"title_b64":...,"artist_b64":...},"areas":[{"area":i,"kind":"2ch"|"multi","channels":2,"dst":bool,"charset":n,"tracks":[{"index":1,"frames":n,"seconds":x,"title_b64":...,"performer_b64":...}]}]}`
+  **文本一律 base64 原样吐碟内字节，helper 不转码**；`charset` 是碟内 `character_set_t` 编号（1=ISO646 / 2=ISO8859-1 / 3=Music Shift-JIS / 4=KSC5601 / 5=GB2312 / 6=Big5 / 7=ISO8859-1+ESC），由播放器侧的 `QStringDecoder` 解释，不认的编码降级为 `Track N`（D-036）。缺省字段直接不出现。
+- `{"cmd":"stat","area":a,"track":t}` → `{"dsf_size":n, ...}`。helper 依据时长/声道生成**确定性 DSF 视图**（DSD+fmt+data 三段头共 92 字节 + 数据区），尺寸可预先精确计算。
 - `{"cmd":"read","area":a,"track":t,"offset":o,"length":l}` → 二进制帧。DSD 音轨为线性映射；DST 音轨由 helper 实时解码，随机 seek 允许解码追赶，helper 可自行落临时缓存换取后续 seek 速度。
+- `{"cmd":"close"}` 释放当前碟；`{"cmd":"quit"}` 让 helper 退出。
 - 播放侧：`mpv_stream_cb_add_ro("sacd", ...)` 注册协议，SacdClient 将 URI 映射到 helper 会话，实现 read/seek/size 回调。
 - M1 范围：2ch 立体声区；多声道区枚举出来但 UI 置灰（P2 开放）。
 - 增益：见 CLAUDE.md 深坑 #5。

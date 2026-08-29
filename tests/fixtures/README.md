@@ -64,3 +64,18 @@ md-player 的完整性判定恰好只看「结构声明 vs 文件实际大小」
 ```bash
 head -c 8388608 "$MD_TEST_MEDIA/某张.iso" > /tmp/truncated.iso
 ```
+
+## make_sacd_skeleton.py —— SACD 结构骨架
+
+```bash
+python3 tests/fixtures/make_sacd_skeleton.py tests/fixtures/generated
+scripts/sacd-helper-drive.py --iso tests/fixtures/generated/sacd-skeleton.iso --track 1
+```
+
+写出 1.4 MB 的镜像：ISO9660 主卷描述符（声明大小 = 实际大小，能过 T5 的完整性校验）、
+`SACDMTOC` 主 TOC、8 个 `SACDText` 与 1 个 `SACD_Man`（`scarletbook_read_master_toc()`
+的硬要求，少一个就判定「不是 SACD 碟」）、`TWOCHTOC` 区 TOC 与 `SACDTRL1` / `SACDTRL2`
+两张曲目表，两条轨（2.000s / 1.000s，2 声道，纯 DSD）。
+
+**音频区全零**，一个合法音频扇区都没有——这既保证零版权内容，又正好覆盖 helper
+「数据不足时补零到声明时长」那条路径（D-038）。CI 用它做 sacd-helper 的冒烟。

@@ -23,6 +23,7 @@ License：**GPL-2.0-or-later**
 | [docs/M1-PLAN.md](docs/M1-PLAN.md) | 当期里程碑（T0–T8） |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 决策记录 |
 | [docs/VISION.md](docs/VISION.md) | 产品愿景（非当期承诺） |
+| [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | vendored 第三方源码的来源与许可 |
 
 ## 构建
 
@@ -120,19 +121,48 @@ PES 扰码位（D-022）。两者都给统一文案「不支持加密原盘，�
 截图落 `~/Pictures/md-player/`。断点续播记录在
 `~/Library/Application Support/MusicDisc/md-player/resume.json`。
 
-### 测试素材
+### SACD helper
 
-真实碟片与样片**不入库**（见 CLAUDE.md 深坑 #6）。开发和验收时用环境变量
-`MD_TEST_MEDIA` 指向本地素材目录：
+`helper/sacd-helper/` 是一个独立的 C 进程：解析 Scarlet Book 结构、解 DST，把每条曲目
+呈现成一个**尺寸可预先算出**的 DSF 视图。vendored 的 GPL 血统代码只存在于这个目录，
+崩溃也隔离在这个进程（docs/ARCHITECTURE.md §SACD、docs/DECISIONS.md D-006 / D-033）。
+它不链接 Qt、不链接播放栈，只认管道。
 
 ```bash
 export MD_TEST_MEDIA=/path/to/your/test-media
-./build/md-player "$MD_TEST_MEDIA/sample.m2ts"
+
+scripts/sacd-helper-drive.py --list                       # 列出目录下所有 SACD 镜像
+scripts/sacd-helper-drive.py --all --determinism          # 逐张 open/stat/read + 两遍逐字节比对
+scripts/sacd-helper-drive.py --iso "<某张.iso>" --track 3 # 单张单轨
+scripts/sacd-helper-drive.py --all --kill-test            # kill -9 helper，看驱动侧是否收到 EOF
 ```
 
-该目录应含 4K 高码率 m2ts 与 mkv（T1 / T2 验收用），碟类样本（BDMV / VIDEO_TS /
-BD·DVD·SACD ISO）随 T3 起逐步补充。`tests/fixtures/` 只放自造的最小结构骨架，
-**绝不放任何版权内容**。
+没有真碟时用自造骨架（不含任何音频内容）：
+
+```bash
+python3 tests/fixtures/make_sacd_skeleton.py tests/fixtures/generated
+scripts/sacd-helper-drive.py --iso tests/fixtures/generated/sacd-skeleton.iso --track 1
+```
+
+M1 的 T6 阶段 1 只做到 helper 独立成活；接进播放器（`sacd://` 协议、曲目列表、增益）
+归阶段 2。
+
+### 测试素材
+
+真实碟片与样片**不入库**（见 CLAUDE.md 深坑 #6）。开发和验收时用环境变量
+`MD_TEST_MEDIA` 指向本地素材目录，**所有脚本与验证一律走它，不在任何地方硬编码路径**：
+
+```bash
+export MD_TEST_MEDIA=/path/to/your/test-media
+./build/md-player "$MD_TEST_MEDIA/某张碟"
+```
+
+该目录应含普通媒体文件（mp4 / mkv / flac，T1 / T2 用）与四类碟样本：BDMV 目录、
+VIDEO_TS 目录、BD / DVD / SACD 镜像。SACD 验收还需要覆盖 **纯 DSD** 与 **DST 压缩**
+两种编码（多声道区几乎必用 DST），`scripts/sacd-helper-drive.py --list` 会把目录下所有
+带 `SACDMTOC` 签名的镜像列出来。
+
+`tests/fixtures/` 只放自造的最小结构骨架，**绝不放任何版权内容**。
 
 错误路径不依赖真实碟片——用自造骨架覆盖（详见 `tests/fixtures/README.md`）：
 
@@ -160,6 +190,8 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
 | `MD_LOG_UI=1` | 把提示条（toast）文案打到 stdout，用于无截屏权限时校验用户实际看到的文案 |
 | `MD_LOG_UI=1` | 同时打印标题·章节面板的开合（`[PANEL]` 行）——面板没有提示条，无截屏权限时这是唯一可核对的痕迹 |
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
+| `MD_SACD_DEBUG=1` | sacd-helper 打印 vendored 解析层的全部诊断（一律走 stderr） |
+| `MD_SACD_STDOUT_TEST=1` | sacd-helper 启动时故意用四种方式往 stdout 写字，用来实测保险闸（D-040） |
 
 ### 代码格式
 

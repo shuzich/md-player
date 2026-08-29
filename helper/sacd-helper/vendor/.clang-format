@@ -1,0 +1,4 @@
+# vendored 的第三方源码不做格式化：改动它等于制造与上游的无谓差异，
+# 也会让「一行未改」这条声明变成假话（D-033 / THIRD-PARTY-NOTICES.md）。
+DisableFormat: true
+SortIncludes: Never

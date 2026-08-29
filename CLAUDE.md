@@ -41,7 +41,9 @@ md-player/
 │   │   └── sacd/              # helper 客户端 + mpv stream_cb
 │   ├── platform/              # 平台特定代码（最小化）
 │   └── ui/                    # QML
-├── helper/sacd-helper/        # 独立进程（C，GPL vendored 代码在此）
+├── helper/sacd-helper/        # 独立进程（C）
+│   ├── src/                   # 自研：协议 v1、DSF 视图、帧装配、vendor shim
+│   └── vendor/                # vendored 第三方源码，一行不改（THIRD-PARTY-NOTICES.md）
 ├── third_party/               # 自编译产物 prefix / vendored 源码
 └── tests/fixtures/            # 只放自造最小结构骨架，禁止版权内容
 ```
