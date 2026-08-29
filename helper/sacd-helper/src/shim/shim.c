@@ -2,6 +2,7 @@
 // 这是铁律 #1 明确允许的「进程/协议胶水层」——上游那 1900 行 sacd_input.c 是
 // PS3 光驱 + 网络传输，我们只要 pread。
 #include "charset.h"
+#include "portable_io.h"
 #include "sacd_reader.h"
 
 #include <stdio.h>
@@ -29,11 +30,11 @@ sacd_reader_t* sacd_open(const char* path) {
     FILE* fp = fopen(path, "rb");
     if (!fp)
         return NULL;
-    if (fseeko(fp, 0, SEEK_END) != 0) {
+    if (MD_FSEEK(fp, 0, SEEK_END) != 0) {
         fclose(fp);
         return NULL;
     }
-    const off_t end = ftello(fp);
+    const md_off_t end = MD_FTELL(fp);
     if (end <= 0) {
         fclose(fp);
         return NULL;
@@ -70,7 +71,7 @@ uint32_t sacd_read_block_raw(sacd_reader_t* r, uint32_t lb_number, uint32_t bloc
     uint64_t want = (uint64_t)block_count * SACD_SECTOR;
     if (off + want > r->size)
         want = r->size - off;
-    if (fseeko(r->fp, (off_t)off, SEEK_SET) != 0)
+    if (MD_FSEEK(r->fp, (md_off_t)off, SEEK_SET) != 0)
         return 0;
     const size_t got = fread(data, 1, (size_t)want, r->fp);
     return (uint32_t)(got / SACD_SECTOR);

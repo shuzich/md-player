@@ -20,7 +20,6 @@ target_include_directories(sacd-helper PRIVATE
     src
     src/shim              # 必须排在 vendor 前面：shim/sacd_reader.h 要盖掉 vendored 那个
     vendor/scarletbook
-    vendor/common
     vendor/dstdec
 )
 
