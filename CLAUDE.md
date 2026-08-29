@@ -65,6 +65,7 @@ cmake --build build
 
 1. **Qt Quick + libmpv 嵌入**：必须在创建任何窗口前调用 `QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL)`（macOS 默认 Metal，会导致 mpv render API 无法工作）。渲染用 `QQuickFramebufferObject` + `mpv_render_context`（OPENGL 类型，get_proc_address 走 `QOpenGLContext`）。参考 mpv-examples 仓库 `libmpv/qml` 的成熟模式。
 2. **seek 手感配方（PotPlayer 级丝滑的关键）**：全局 hr-seek 保持默认；进度条**拖动过程中**发 `seek <t> absolute+keyframes`（贴关键帧，即时出画面），**松手时**发 `seek <t> absolute+exact`（精确落点）。拖动事件节流到 ~30Hz。配合 baseline.conf 的大 demuxer 缓存。禁止在拖动中做 exact seek——那是"拉进度慢"的根源。
+   **例外：纯音频资源拖动中一次 seek 都不要发。** 这条配方的全部理由是「即时出画面」，没有画面时理由不成立而代价全在——实测一次 3.5 秒拖动发出 88 次 seek，在真实音频设备上换来 89 次 `starting audio playback`，约每秒 30 次 AO 重启、每次只放 4 毫秒碎片，全程一片杂音。纯音频改为拖动中只动进度条与时间标签，松手发一次 exact。判定用 `Player.hasVideo`，注意两个坑：`dwidth` 在纯音频上是 MPV_FORMAT_NONE（撞深坑 #10），内嵌封面也会被报成视频轨（要查 `current-tracks/video/albumart`）。详见 D-055。
 3. **Homebrew 的 mpv 不保证编入 `bd://` 与 `dvd://` 协议**。T0 第一件事跑 `scripts/check-mpv-caps.sh` 探测并原样汇报输出；缺失则按脚本内注释用 meson 自编译 libmpv（启用 libbluray + dvdnav）到 `third_party/prefix`，CMake 通过 PKG_CONFIG_PATH 优先链接自编译版。
 4. **加密盘检测**：libbluray `bd_get_disc_info()` → `aacs_detected && !aacs_handled` 即报加密盘；DVD 侧 IFO 打不开或读扇区出现 CSS 加扰迹象 → 同样报错。不做任何绕过尝试。
 5. **SACD 电平**：DSF 经 ffmpeg 解为 PCM 后比 foobar2000 + SACD 插件低约 6dB。播放 SACD 时默认 +6dB 增益，设置页可关。
@@ -78,7 +79,9 @@ cmake --build build
 11. **验证方法缺参照系 —— 两种典型，都会给出「没问题」的假结论**：
     (a) **阴性结论未自检工具**。「命中 0 / 无匹配」当证据之前，先确认工具真的看得见目标。实例：本仓库的 `grep` 是个 shell 函数包装，对 ISO-8859 等非 UTF-8 文件**静默跳过**，于是 `list.h` 的引用数被数成 5（实际 0）、`vendor/dstdec/` 的许可头被数成 6/14（实际 14/14），两处结论都反了。校验办法：换一个独立工具（`awk` / `sed` / Python）复算一遍，或先用一个**必然命中**的模式自检工具本身。
     (b) **把确定性/幂等当成正确性**。「两次读一致」「跨版本 sha256 一致」只证明可复现，**确定性的错误数据同样全部通过**。实例：T6 阶段 2 的 seek 缺陷——人工验收听出杂音，而自动证据（同偏移两次读一致 + 与阶段 1 的 sha256 一致）全绿。正确性必须对**独立参照物**：顺序全量导出做参照件，再让随机存取路径逐段 memcmp（`scripts/sacd-helper-drive.py --verify-random`）；或者拿外部实现（ffmpeg / ffprobe）对一遍账。
-    一句话：**任何「没问题」的结论，先问它的参照物是什么；没有独立参照物的自比对不构成证据。**
+    (c) **测量手段把被测现象本身消掉了**。实例：用 `ao=pcm` 录音查拖动杂音——同一次拖动，真实 CoreAudio 下有 89 次 `starting audio playback`，`ao=pcm` 下只有 2 次，因为没有设备要喂就不会刷 AO。录音干干净净，而缺陷就在被消掉的那部分里。
+    (d) **拿延迟论证噪声**。实例：上一轮用「每次 seek 到位 0–14 ms」得出「拖动不是问题」——快不等于不响，30 次/秒的快重启正是噪声本身。
+    一句话：**任何「没问题」的结论，先问它的参照物是什么；没有独立参照物的自比对不构成证据，用错参照物的测量比没有测量更坏。**
 
 12. **别把 352.8 kHz 直接递给音频设备**。DSD 解出来是 352800 Hz，且带着 DSD 固有的超声整形噪声（30 kHz 以上 mean −24 dB / peak −10 dB 量级）。mpv 会照原样向 AO 要这个速率，而绝大多数声卡只支持 44.1/48/88.2/96 kHz——设备端自己做 7 倍降采样，那层抗混叠不由我们控制，超声噪声整片折回可听带，听感是「沙」，且**每次 AO 重启（暂停/恢复、seek、换轨）都会重来一次**，于是杂音正好出现在这几个时刻，很容易被误判成 seek 或解码的问题。纯音频高采样率资源一律先在 `af` 链里 `aresample` 到设备支持的速率，且**重采样必须排在增益与限幅之前**。查这类问题用 `MD_LOG_MPV=v` 看 `AO: [coreaudio] …Hz` 那行，再用 `kAudioDevicePropertyAvailableNominalSampleRates` 对一遍设备真实能力。详见 D-053。
 

@@ -225,6 +225,18 @@ void PlayerController::drainEvents() {
             }
             refreshChapters();
             refreshTracks();
+            if (!qgetenv("MD_LOG_MPV").isEmpty()) {
+                // H3：确认这条流在 mpv 眼里的可 seek 属性与它自己算出来的大小。
+                for (const char* k : {"seekable", "partially-seekable", "demuxer-via-network", "file-size",
+                                      "demuxer-cache-state/bof-cached", "current-demuxer"}) {
+                    if (char* v = mpv_get_property_string(mpv_, k)) {
+                        qInfo("[属性] %-32s = %s", k, v);
+                        mpv_free(v);
+                    } else {
+                        qInfo("[属性] %-32s = <取不到>", k);
+                    }
+                }
+            }
             emit fileLoaded();
             // 有断点记录就问用户，不擅自跳转。
             if (pendingChapter_ >= 1) {
@@ -292,6 +304,30 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
         subtitleTrackId_ = trackIdFromEvent(prop);
         emit subtitleTrackIdChanged();
         return;
+    }
+
+    // dwidth 也是「能被关闭」的属性：纯音频资源上 mpv 发的是 MPV_FORMAT_NONE +
+    // 空指针，会被下面的闸门整个吞掉（深坑 #10）。而「有没有画面」正是拖动手感
+    // 走哪条路的开关（D-055），必须在闸门之前定下来。
+    if (name == QLatin1String("dwidth")) {
+        bool has = prop->format == MPV_FORMAT_INT64 && prop->data && *static_cast<int64_t*>(prop->data) > 0;
+        // 内嵌封面也会被 mpv 报成视频轨、给出 dwidth——带封面的 flac 于是被误判成
+        // 「有画面」，拖动又走回了 30Hz 连拍那条路。封面不是画面，按纯音频处理。
+        if (has) {
+            int flag = 0;
+            if (mpv_get_property(mpv_, "current-tracks/video/albumart", MPV_FORMAT_FLAG, &flag) >= 0 && flag)
+                has = false;
+        }
+        if (has != hasVideo_) {
+            hasVideo_ = has;
+            qInfo("画面: %s", has ? "有" : "无（纯音频）");
+            emit videoInfoChanged();
+        }
+        if (!has) {
+            videoInfo_.clear();
+            emit videoInfoChanged();
+            return;
+        }
     }
 
     if (!prop->data)

@@ -183,6 +183,7 @@ struct Stream {
     qint64 size = 0;
     qint64 pos = 0;
     quint32 nextId = 1;
+    qint64 seekCalls = 0;
 };
 
 constexpr quint32 kErrorFlag = 0x80000000u;
@@ -195,7 +196,14 @@ int64_t streamSeek(void* cookie, int64_t offset) {
     Stream* s = static_cast<Stream*>(cookie);
     if (offset < 0)
         return MPV_ERROR_GENERIC;
+    const int64_t before = s->pos;
     s->pos = offset > s->size ? s->size : offset;
+    ++s->seekCalls;
+    // H3：先确认 mpv 到底调没调 seek_fn。MD_SACD_DUMP 只看得到「读的偏移不连续」，
+    // 看不到「mpv 调了 seek 但随后又顺序读回来」这种情形。
+    if (s->dumpLog)
+        fprintf(s->dumpLog, "#seek %lld -> %lld (第 %lld 次) %lld\n", (long long)before, (long long)s->pos,
+                (long long)s->seekCalls, (long long)QDateTime::currentMSecsSinceEpoch());
     return s->pos;
 }
 
@@ -258,6 +266,7 @@ int64_t streamRead(void* cookie, char* buf, uint64_t nbytes) {
 
 void streamClose(void* cookie) {
     Stream* s = static_cast<Stream*>(cookie);
+    qInfo("sacd 流关闭: seek_fn 被调用 %lld 次，读到 %lld 字节位置", (long long)s->seekCalls, (long long)s->pos);
     if (s->dumpFd >= 0)
         ::close(s->dumpFd);
     if (s->dumpLog)

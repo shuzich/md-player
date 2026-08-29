@@ -19,6 +19,9 @@ class PlayerController : public QObject {
     Q_PROPERTY(bool hasMedia READ hasMedia NOTIFY hasMediaChanged)
     Q_PROPERTY(QString mediaTitle READ mediaTitle NOTIFY mediaTitleChanged)
     Q_PROPERTY(QString videoInfo READ videoInfo NOTIFY videoInfoChanged)
+    // 当前资源有没有画面。拖动手感的配方（深坑 #2）只对有画面的资源成立，
+    // 纯音频必须走另一套（D-055），所以这个判定要能被 QML 拿到。
+    Q_PROPERTY(bool hasVideo READ hasVideo NOTIFY videoInfoChanged)
     Q_PROPERTY(double volume READ volume WRITE setVolume NOTIFY volumeChanged)
     Q_PROPERTY(bool muted READ muted WRITE setMuted NOTIFY mutedChanged)
     Q_PROPERTY(QVariantList chapters READ chapters NOTIFY chaptersChanged)
@@ -47,6 +50,7 @@ public:
     bool hasMedia() const { return hasMedia_; }
     QString mediaTitle() const { return mediaTitle_; }
     QString videoInfo() const { return videoInfo_; }
+    bool hasVideo() const { return hasVideo_; }
     double volume() const { return volume_; }
     bool muted() const { return muted_; }
     QVariantList chapters() const { return chapters_; }
@@ -171,6 +175,7 @@ private:
     bool hasMedia_ = false;
     QString mediaTitle_;
     QString videoInfo_;
+    bool hasVideo_ = false;
     double volume_ = 100.0;
     bool muted_ = false;
     QVariantList chapters_;

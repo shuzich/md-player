@@ -36,7 +36,13 @@ Rectangle {
             position: root.player.position
             duration: root.player.duration
             chapters: root.player.chapters
-            onSeekDragged: function(t) { root.player.seekDrag(t) }
+            // 深坑 #2 的配方（拖动中 ~30Hz 发 keyframes seek）**只对有画面的资源成立**：
+            // 它的全部理由是「即时出画面」。纯音频没有画面，理由不成立而代价全在——
+            // 实测一次 3.5 秒拖动发出 88 次 seek，在真实 CoreAudio 输出下换来 89 次
+            // `starting audio playback`，即每秒约 30 次 AO 重启、每次只放约 4 毫秒
+            // 碎片，听感就是拖动全程一片杂音（D-055）。纯音频改为：拖动中只动进度条
+            // 与时间标签，松手时发一次 absolute+exact。
+            onSeekDragged: function(t) { if (root.player.hasVideo) root.player.seekDrag(t) }
             onSeekReleased: function(t) { root.player.seekExact(t) }
         }
 
