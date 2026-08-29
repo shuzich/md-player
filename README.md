@@ -158,6 +158,7 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
 | `MD_LOG_SEEK=1` | 打印每次 seek 的标志、目标与「命令→画面到位」耗时 |
 | `MD_LOG_TRACKS=1` | 打印章节与音轨/字幕轨枚举结果 |
 | `MD_LOG_UI=1` | 把提示条（toast）文案打到 stdout，用于无截屏权限时校验用户实际看到的文案 |
+| `MD_LOG_UI=1` | 同时打印标题·章节面板的开合（`[PANEL]` 行）——面板没有提示条，无截屏权限时这是唯一可核对的痕迹 |
 | `MD_MPV_CONF=<路径>` | 覆盖 `configs/mpv-baseline.conf` |
 
 ### 代码格式

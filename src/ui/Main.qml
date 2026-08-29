@@ -66,6 +66,10 @@ ApplicationWindow {
         id: titlePanel
         disc: root.activeDisc
         fmt: controls.fmt
+        // 面板开合没有提示条可看，无屏幕录制权限时它在日志里是完全隐形的——
+        // 验「按 T 有没有反应」曾只能靠临时探针。并进 MD_LOG_UI 常驻，零行为改动。
+        onOpened: if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 打开")
+        onClosed: if (Player.uiLogEnabled) console.log("[PANEL] 标题·章节面板 关闭")
     }
 
     Timer {
