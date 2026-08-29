@@ -227,8 +227,11 @@ void PlayerController::drainEvents() {
             refreshTracks();
             if (!qgetenv("MD_LOG_MPV").isEmpty()) {
                 // H3：确认这条流在 mpv 眼里的可 seek 属性与它自己算出来的大小。
-                for (const char* k : {"seekable", "partially-seekable", "demuxer-via-network", "file-size",
-                                      "demuxer-cache-state/bof-cached", "current-demuxer"}) {
+                // 注意：这一刻 dwidth 事件通常还没到，hasVideo_ 可能仍是初值。
+                // 终态以下面 dwidth 分支打的「画面:」那行为准。
+                for (const char* k :
+                     {"video-format", "current-tracks/video/albumart", "seekable", "partially-seekable",
+                      "demuxer-via-network", "file-size", "demuxer-cache-state/bof-cached", "current-demuxer"}) {
                     if (char* v = mpv_get_property_string(mpv_, k)) {
                         qInfo("[属性] %-32s = %s", k, v);
                         mpv_free(v);
@@ -320,7 +323,8 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
         }
         if (has != hasVideo_) {
             hasVideo_ = has;
-            qInfo("画面: %s", has ? "有" : "无（纯音频）");
+            qInfo("画面: %s → 拖动走%s", has ? "有" : "无（纯音频）",
+                  has ? "视频路径（30Hz keyframes，深坑 #2）" : "纯音频路径（松手才 seek，D-055）");
             emit videoInfoChanged();
         }
         if (!has) {
