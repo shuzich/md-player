@@ -145,6 +145,7 @@ private:
     void rememberPosition();
     static QString screenshotDir();
     void noteSeekIssued(double target, const char* flags);
+    void logCacheState();
     void loadInternal(const QString& uri, const QString& resumeKey);
 
     mpv_handle* mpv_ = nullptr;

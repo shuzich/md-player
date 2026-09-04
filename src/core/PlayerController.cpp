@@ -347,12 +347,19 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
         }
         // 诊断用，默认关闭：MD_LOG_PROGRESS=1 时每跨过一整秒打一次点。
         static const bool logProgress = !qgetenv("MD_LOG_PROGRESS").isEmpty();
-        if (logProgress) {
+        // MD_LOG_CACHE=1 顺带把 demuxer 缓存前沿打出来。SACD 的「seek 之后卡几秒」
+        // 只能靠这个量定位：卡多久 = (目标 − 缓存前沿) ÷ DST 解码速度（约 20× 实时），
+        // 与 readahead 无关（D-062 实测 10 与 3600 曲线一致）。
+        static const bool logCache = !qgetenv("MD_LOG_CACHE").isEmpty();
+        if (logProgress || logCache) {
             static int lastWhole = -1;
             const int whole = static_cast<int>(position_);
             if (whole != lastWhole) {
                 lastWhole = whole;
-                qInfo("进度: %.3f / %.3f  暂停=%d", position_, duration_, paused_ ? 1 : 0);
+                if (logProgress)
+                    qInfo("进度: %.3f / %.3f  暂停=%d", position_, duration_, paused_ ? 1 : 0);
+                if (logCache)
+                    logCacheState();
             }
         }
         emit positionChanged();
@@ -773,6 +780,31 @@ void PlayerController::refreshTracks() {
         }
         emit tracksChanged();
     }
+}
+
+// demuxer-cache-state 里我们只关心两件事：缓存前沿到了第几秒（cache-end），
+// 以及为此占了多少内存（fw-bytes）。前沿之前的 seek 命中内存，之后的要等解码。
+void PlayerController::logCacheState() {
+    if (!mpv_)
+        return;
+    mpv_node node;
+    if (mpv_get_property(mpv_, "demuxer-cache-state", MPV_FORMAT_NODE, &node) < 0)
+        return;
+    double cacheEnd = -1.0;
+    int64_t fwBytes = -1;
+    if (node.format == MPV_FORMAT_NODE_MAP) {
+        for (int i = 0; i < node.u.list->num; ++i) {
+            const QLatin1String key(node.u.list->keys[i]);
+            const mpv_node& v = node.u.list->values[i];
+            if (key == QLatin1String("cache-end") && v.format == MPV_FORMAT_DOUBLE)
+                cacheEnd = v.u.double_;
+            else if (key == QLatin1String("fw-bytes") && v.format == MPV_FORMAT_INT64)
+                fwBytes = v.u.int64;
+        }
+    }
+    mpv_free_node_contents(&node);
+    qInfo("[cache] t=%lldms 位置=%.1f 缓存前沿=%.1fs (领先 %.1fs) 前向占用=%.1fMB", seekClock().elapsed(), position_,
+          cacheEnd, cacheEnd >= 0 ? cacheEnd - position_ : 0.0, fwBytes >= 0 ? double(fwBytes) / 1048576.0 : 0.0);
 }
 
 void PlayerController::noteSeekIssued(double target, const char* flags) {
