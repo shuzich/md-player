@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 
 // 播控条：播放/暂停、时间、章节、音轨/字幕、音量、截图。
 Rectangle {
@@ -18,6 +19,31 @@ Rectangle {
 
     implicitHeight: 78
     color: "#e6101014"
+
+    // 下拉框收起时的文案。轨数 ≤1 时框是置灰的，它显示的这一行就是用户能拿到的
+    // 全部信息，所以「没有」也要明说，不能留空（D-058）。
+    readonly property string noTrackText: qsTr("无")
+    function trackText(list, idx) {
+        if (list.length === 0) return root.noTrackText
+        if (idx >= 0 && idx < list.length) return list[idx].label
+        return list.length === 1 ? list[0].label : qsTr("默认")
+    }
+
+    // 播控条排得下排不下，在没有屏幕录制权限的机器上于日志里完全隐形（同 T3 的面板
+    // 开合）。音轨/字幕两个框改成常驻后多占 420px，MD_LOG_UI 下打一行「内容总宽 /
+    // 可用宽」，溢出与否一眼可判（D-058）。
+    function logExtent(why) {
+        if (root.player.uiLogEnabled)
+            console.log("[BAR] " + why + " 控件总宽=" + Math.round(controlsRow.childrenRect.width)
+                        + " 可用宽=" + Math.round(controlsRow.width)
+                        + (controlsRow.childrenRect.width > controlsRow.width ? "  溢出!" : "  放得下"))
+    }
+
+    Connections {
+        target: root.player
+        function onTracksChanged() { root.logExtent("轨道表更新") }
+        function onChaptersChanged() { root.logExtent("章节表更新") }
+    }
 
     function fmt(t) {
         if (!isFinite(t) || t < 0) t = 0
@@ -46,14 +72,21 @@ Rectangle {
             onSeekReleased: function(t) { root.player.seekExact(t) }
         }
 
-        Row {
+        // RowLayout 而不是 Row：音轨/字幕两个框改成常驻后（D-058），碟类资源上
+        // 「章节 + 音轨 + 字幕」三个框同时在场，实测内容总宽 1322 > 可用宽 1248，
+        // 右端的截图按钮被挤出窗口。改成布局后空间不够时先压缩三个下拉框
+        // （下限 120px），按钮与音量条一律按自身宽度钉死，不参与压缩。
+        RowLayout {
+            id: controlsRow
             width: parent.width
             height: 34
             spacing: 10
+            Component.onCompleted: root.logExtent("载入")
 
             // 标题·章节面板开关（只在碟类资源上出现）
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 visible: root.hasTitles
                 text: "☰"
                 font.pixelSize: 16
@@ -64,7 +97,8 @@ Rectangle {
 
             // 上一个 / 下一个条目（SACD=曲目，蓝光/DVD=标题）
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 visible: root.hasTitles
                 text: "⏮"
                 font.pixelSize: 15
@@ -75,14 +109,16 @@ Rectangle {
 
             // 播放 / 暂停
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 text: root.player.paused ? "▶" : "⏸"
                 font.pixelSize: 17
                 onClicked: root.player.togglePause()
             }
 
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 visible: root.hasTitles
                 text: "⏭"
                 font.pixelSize: 15
@@ -92,37 +128,53 @@ Rectangle {
             }
 
             Text {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 color: "#e8e8ee"
                 font.pixelSize: 13
                 font.family: "Menlo"
                 text: root.fmt(seek.shownPosition) + " / " + root.fmt(root.player.duration)
             }
 
-            // 章节
+            // 章节。没有章节的资源（纯音频、无章节的普通文件）仍然隐藏——B1 的置灰
+            // 口径只覆盖音轨与字幕这两个「用户以为功能缺失」的入口（D-058）。
             ComboBox {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                focusPolicy: Qt.NoFocus
                 visible: root.player.chapters.length > 0
-                width: 190
+                // fillWidth 是「允许被压缩」的开关：实测（Qt 6.11）没有它时 RowLayout
+                // 不会把子项压到 preferredWidth 以下，宁可整排溢出，maximumWidth 才是
+                // 它平时的宽度上限（D-058）。
+                Layout.fillWidth: true
+                Layout.preferredWidth: 190
+                Layout.maximumWidth: 190
+                Layout.minimumWidth: 120
                 model: root.player.chapters
                 textRole: "title"
                 currentIndex: root.player.chapter
                 onActivated: function(i) { root.player.jumpToChapter(i) }
             }
 
-            // 音轨
+            // 音轨。轨数 ≤1 时**不隐藏，改为置灰**（D-058）：隐藏会让人以为播放器
+            // 没有这个功能——人工验收里就是这么误判的。置灰同时还说明了「这张碟
+            // 另有多声道区，只是不可播」。字幕框同理。
             ComboBox {
                 id: audioBox
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.player.audioTracks.length > 1
-                width: 210
+                Layout.alignment: Qt.AlignVCenter
+                // 深坑 #7：控件把焦点吸走 = 窗口级快捷键静默失效。播控条不是 Popup，
+                // 但没有任何理由让这几个下拉框拿键盘焦点。
+                focusPolicy: Qt.NoFocus
+                enabled: root.player.audioTracks.length > 1
+                Layout.fillWidth: true
+                Layout.preferredWidth: 210
+                Layout.maximumWidth: 210
+                Layout.minimumWidth: 120
                 model: root.player.audioTracks
                 textRole: "label"
                 // 没有前缀时两个下拉框长得一模一样，用户根本不知道哪个是音轨、哪个是
                 // 字幕——这就是 issue #3 的主因。displayText 只改收起时的显示，
                 // 展开后的列表项保持原样。
-                displayText: qsTr("音轨：") + (currentIndex >= 0 && currentIndex < model.length
-                                              ? model[currentIndex].label : qsTr("默认"))
+                displayText: qsTr("音轨：") + root.trackText(model, currentIndex)
                 onActivated: function(i) { root.player.setAudioTrack(model[i].id) }
                 Component.onCompleted: syncIndex()
                 function syncIndex() {
@@ -136,14 +188,17 @@ Rectangle {
                 }
             }
 
-            // 字幕（含「关闭」项，id = -1）
+            // 字幕（含「关闭」项，id = -1）。碟上没有字幕时同样置灰显示（D-058）。
             ComboBox {
                 id: subBox
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.player.subtitleTracks.length > 0
-                width: 210
-                displayText: qsTr("字幕：") + (currentIndex >= 0 && currentIndex < model.length
-                                              ? model[currentIndex].label : qsTr("关"))
+                Layout.alignment: Qt.AlignVCenter
+                focusPolicy: Qt.NoFocus
+                enabled: root.player.subtitleTracks.length > 0
+                Layout.fillWidth: true
+                Layout.preferredWidth: 210
+                Layout.maximumWidth: 210
+                Layout.minimumWidth: 120
+                displayText: qsTr("字幕：") + (enabled ? root.trackText(model, currentIndex) : root.noTrackText)
                 model: {
                     var list = [{ id: -1, label: "关" }]
                     for (var i = 0; i < root.player.subtitleTracks.length; i++)
@@ -165,41 +220,46 @@ Rectangle {
                 }
             }
 
-            Item { width: 8; height: 1 }   // 间隔
+            Item { Layout.preferredWidth: 8; Layout.minimumWidth: 8 }   // 间隔
 
             // 静音 + 音量
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 text: root.player.muted || root.player.volume <= 0 ? "🔇" : "🔊"
                 font.pixelSize: 15
                 onClicked: root.player.setMuted(!root.player.muted)
             }
             Slider {
                 id: volSlider
-                anchors.verticalCenter: parent.verticalCenter
-                width: 110
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 110
+                Layout.minimumWidth: 110
                 from: 0; to: 130
                 value: root.player.volume
                 onMoved: root.player.setVolume(value)
             }
             Text {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 34
+                Layout.minimumWidth: 34
                 color: "#8a8a95"
                 font.pixelSize: 12
-                width: 34
                 text: Math.round(root.player.volume) + "%"
             }
 
             // 截图：两种模式
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 text: "截图"
                 ToolTip.visible: hovered
                 ToolTip.text: "纯画面（不含字幕）"
                 onClicked: root.requestScreenshot(false)
             }
             ToolButton {
-                anchors.verticalCenter: parent.verticalCenter
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
                 text: "截图+字幕"
                 ToolTip.visible: hovered
                 ToolTip.text: "含字幕与 OSD"

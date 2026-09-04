@@ -74,6 +74,7 @@ cmake --build build
    **例外是必须要键盘焦点的模态框**（续播询问框：Esc 要能关、按钮要能 Tab），它只能 `focus: true`，于是窗口级快捷键在它开着时天然失效——这正是我们要的。但代价是回车也进不来：Qt Quick Controls 的 Button 只吃 Space，没有 Widgets 那套 default button 语义，Return 落到按钮上直接 ignore。解法是**在 Popup 内部沿父链接住冒泡的按键**（把 `Keys.onPressed` 挂到 `DialogButtonBox` 这类按钮的父项上），不要再去试窗口级 `Shortcut`——那条路从机制上就不通。详见 D-032。
 8. **重叠的 TapHandler 会一起触发**：父项与子项各挂一个 `TapHandler` 且区域重叠时，点子项会**两个都响应**（T3 的标题行与展开箭头就是这样，点箭头顺带把该标题重新载入一遍；蓝光上不明显，DVD 换 title 要几秒，一眼可见）。解法是让点击区物理不重叠——把行的 `TapHandler` 挂到一个 anchors 避开箭头的 `Item` 上，而不是指望事件被"消费"。
 9. **交互验证前先确保环境干净**：跑任何 UI 验证之前必须先清 `resume.json`（断点记录）、`pkill md-player` 确认没有残留进程、确认没有模态框开着。曾经因为遗留断点记录让模态续播框一直开着，把「模态框挡住点击 + 按住快捷键失效」整整误判成播控条与快捷键功能回归，白查了十几轮。**现象不对先怀疑环境，再怀疑代码。**
+   **验快捷键必须用 .app 包，别用 `./build/md-player` 裸二进制。** 裸二进制没有 bundle（D-010），macOS 把它当后台型进程：鼠标事件照收，但**下拉框弹层一关，整个 app 的激活状态就被交还给上一个常规应用**（实测跳回 Chrome），此后 T / 空格 / 方向键全部静默失效——看起来和深坑 #7 的「焦点被 Popup 吸走」一模一样，其实窗口连 `active` 都是 false。同一份二进制套一个最小 .app 壳（Info.plist + Contents/MacOS/）跑同一套操作，快捷键全通。分辨办法：日志里打 `Window.active` 与 `activeFocusItem`，前者 false 就是激活丢了、不是焦点问题（D-058）。
 10. **mpv 的「属性无值」事件 data 是空指针**：`aid` / `sid` 关成 `no` 时，mpv 发的 `MPV_EVENT_PROPERTY_CHANGE` 带的是 `MPV_FORMAT_NONE` + `data == nullptr`，而不是某个负数。`handlePropertyChange` 开头那道 `if (!prop->data) return;` 闸门会把这类事件整个吞掉，于是「关字幕」在 mpv 侧生效了、UI 状态却永远停在上一条轨上——没有任何报错，看起来就像点了没反应。凡是**能被关闭**的属性（aid / sid / vid / 各种 `-delay`），一律在空指针闸门**之前**单独处理，把 NONE 折算成 -1。查这类问题时先用 `MD_LOG_PROPS=1` 看 `fmt=0 data=0x0`，再用 `mpv_get_property_string` 对一遍 mpv 侧真值，别只信 UI（issue #2）。
 
 11. **验证方法缺参照系 —— 两种典型，都会给出「没问题」的假结论**：

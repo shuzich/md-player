@@ -741,6 +741,18 @@ void PlayerController::refreshTracks() {
             parts << e[QStringLiteral("lang")].toString();
         if (!e[QStringLiteral("codec")].toString().isEmpty())
             parts << e[QStringLiteral("codec")].toString();
+        // 音轨再补一段声道描述。这个下拉框最常见的用途就是在「立体声」和「多声道」
+        // 之间挑一条，而 codec 名（pcm_bluray / dsd_lsbf_planar）根本看不出声道数；
+        // 只有一条音轨时下拉框是置灰的，这段描述就是它唯一还能给出的信息（D-058）。
+        if (type == QLatin1String("audio")) {
+            const int ch = e[QStringLiteral("channels")].toInt();
+            if (ch == 1)
+                parts << QStringLiteral("单声道");
+            else if (ch == 2)
+                parts << QStringLiteral("立体声 2ch");
+            else if (ch > 2)
+                parts << QStringLiteral("多声道 %1ch").arg(ch);
+        }
         e[QStringLiteral("label")] = parts.isEmpty() ? QStringLiteral("#%1").arg(e[QStringLiteral("id")].toLongLong())
                                                      : parts.join(QStringLiteral(" · "));
 
