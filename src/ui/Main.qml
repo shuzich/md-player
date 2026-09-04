@@ -30,6 +30,14 @@ ApplicationWindow {
     title: windowSubject.length > 0 ? windowSubject + " — md-player" : "md-player"
     color: "#101014"
 
+    // 「快捷键突然全哑」有三种成因，现象一模一样、日志里却分得开（深坑 #9 / D-061）：
+    // ① 有下拉框弹层开着 —— active 仍是 true、焦点也还在根项，但快捷键一个都不响，
+    //    这是最常见的一种，两轮误判都栽在它上面；② 焦点被 Popup 吸走（深坑 #7）——
+    //    active 仍是 true、activeFocusItem 变成 QQuickPopupItem；③ 整个 app 的激活
+    //    丢了 —— active 直接是 false。故把这两个量并进 MD_LOG_UI 常驻，零行为改动。
+    onActiveChanged: if (Player.uiLogEnabled)
+        console.log("[WIN] 窗口active=" + active + " 焦点=" + activeFocusItem)
+
     // 视频渲染面。必须始终 visible —— 一旦不可见，Qt 不会调用 createRenderer，
     // mpv_render_context 就建不起来，vo=libmpv 没有输出端，视频链路整条不工作。
     MpvVideo {
