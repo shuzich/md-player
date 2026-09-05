@@ -50,7 +50,10 @@ Rectangle {
         var sum = 0, n = 0
         for (var i = 0; i < controlsRow.children.length; i++) {
             var c = controlsRow.children[i]
-            if (c.visible === false) continue
+            // **不过滤 visible**：窗口下限必须与载入状态无关。章节框、上/下一条目
+            // 这些控件只在碟类资源上出现，若按当时可见的算，空窗口能被拖到 600、
+            // flac 是 939、蓝光是 1105，一打开文件 Qt 又把窗口顶回去——窗口不该
+            // 在用户打开文件时自己改尺寸（D-069）。按「全都在」的最坏情况算。
             var m = c.Layout.minimumWidth
             // 逐项向上取整：控件的 implicitWidth 常带小数（文字测量），直接累加会
             // 比实际布局少 1 px，窗口就正好停在「内容比行宽多 1」的位置上（实测）。
@@ -59,6 +62,10 @@ Rectangle {
         }
         return sum + Math.max(0, n - 1) * controlsRow.spacing
     }
+    // 窗口下限取**载入后**的宽度，不随载入状态浮动：空窗口时章节框不可见、
+    // 轨道名更短，`minContentWidth` 会小一截，于是空窗口能被拖到 600 宽、
+    // 一打开文件 Qt 又把它顶回去——窗口不该在用户打开文件时自己改尺寸（D-069）。
+    // `chapterBox` 隐藏时按它的 Layout.minimumWidth 补上，轨道框按下限计。
     readonly property real minWindowWidth: minContentWidth + 32   // 左右边距各 16
 
     function logExtent(why) {
@@ -159,11 +166,13 @@ Rectangle {
 
             Text {
                 Layout.alignment: Qt.AlignVCenter
-                Layout.minimumWidth: implicitWidth
+                // 下限按**最坏内容**钉死，不随当前时长浮动（同上，D-069）。
+                Layout.minimumWidth: timeFloor.implicitWidth
                 color: "#e8e8ee"
                 font.pixelSize: 13
                 font.family: "Menlo"
                 text: root.fmt(seek.shownPosition) + " / " + root.fmt(root.player.duration)
+                Text { id: timeFloor; visible: false; font: parent.font; text: "0:00:00 / 0:00:00" }
             }
 
             // 章节。没有章节的资源（纯音频、无章节的普通文件）仍然隐藏——B1 的置灰
