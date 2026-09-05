@@ -93,6 +93,7 @@ ApplicationWindow {
         hasTitles: root.activeDisc.discOpen
         onRequestScreenshot: function(withSubs) { Player.screenshot(withSubs) }
         onRequestTitlePanel: titlePanel.visible ? titlePanel.close() : titlePanel.open()
+        onRequestSettings: settingsPanel.opened ? settingsPanel.close() : settingsPanel.open()
         onRequestPrevTitle: root.stepTitle(-1)
         onRequestNextTitle: root.stepTitle(1)
     }
@@ -172,6 +173,14 @@ ApplicationWindow {
         }
     }
 
+    // 设置页（T7 / D-070）。非模态、focus:false，Esc 由下面的窗口级派发链关闭。
+    SettingsPanel {
+        id: settingsPanel
+        player: Player
+        onOpened: if (Player.uiLogEnabled) console.log("[PANEL] 设置页 打开")
+        onClosed: if (Player.uiLogEnabled) console.log("[PANEL] 设置页 关闭")
+    }
+
     // 标题·章节面板（T3 蓝光 / T4 DVD 共用）。非模态，开着也不影响播控与快捷键。
     TitlePanel {
         id: titlePanel
@@ -216,6 +225,12 @@ ApplicationWindow {
             resumeDialog.savedPos = pos
             resumeDialog.open()
         }
+        // 设置未能生效时必须让用户看见（D-051 / D-070），不许静默失败。
+        function onSettingFailed(why) { toast.show(qsTr("设置未能生效：") + why) }
+        function onScreenshotDirRejected(dir) { toast.show(qsTr("这个目录不可写，截图目录没有改：") + dir) }
+        function onScreenshotFailed(dir) { toast.show(qsTr("截图没能保存，检查这个目录是否可写：") + dir) }
+        function onPassthroughFellBack() { toast.show(qsTr("当前输出设备不接受比特流，已回落为 PCM 解码播放")) }
+        function onPassthroughNoAudioOut() { toast.show(qsTr("打开直通后音频输出打不开，已自动关掉直通")) }
         function onScreenshotSaved(path, withSubs) {
             toast.show((withSubs ? "已截图（含字幕）：" : "已截图（纯画面）：") + path)
         }
@@ -420,22 +435,27 @@ ApplicationWindow {
     // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。
     // Esc 的派发顺序显式写死，不靠「谁先声明谁先吃」：
     //   ① 下拉框弹层开着 → 关弹层（它盖在最上层，且是用户最后打开的东西）；
-    //   ② 否则面板开着   → 关面板；
-    //   ③ 否则不处理。
+    //   ② 否则设置页开着 → 关设置页；
+    //   ③ 否则面板开着   → 关面板；
+    //   ④ 否则不处理。
     // 续播框不在此列：它是 focus: true 的模态框，开着时窗口级快捷键整体失效，
     // 它的 Esc 由 Popup 内部沿父链接住的按键处理（D-032）。
     Shortcut {
         sequence: "Escape"
-        enabled: controls.anyPopupOpen || titlePanel.opened
+        enabled: controls.anyPopupOpen || settingsPanel.opened || titlePanel.opened
         onActivated: {
             if (controls.anyPopupOpen)
                 controls.closePopups()
+            else if (settingsPanel.opened)
+                settingsPanel.close()
             else if (titlePanel.opened)
                 titlePanel.close()
         }
     }
     // SACD 的 +6dB 增益临时开关（深坑 #5）。正式入口在 T7 设置页，这里先给个快捷键，
     // 好让「开/关 A/B 是否可闻」这条人工验收跑得起来。
+    Shortcut { sequence: ","; enabled: !resumeDialog.opened
+               onActivated: settingsPanel.opened ? settingsPanel.close() : settingsPanel.open() }
     Shortcut { sequence: "g"; enabled: !resumeDialog.opened && Sacd.discOpen
                onActivated: {
                    Player.setSacdGain(!Player.sacdGain)

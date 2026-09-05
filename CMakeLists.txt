@@ -97,6 +97,7 @@ qt_add_qml_module(md-player
         src/ui/SeekBar.qml
         src/ui/ControlBar.qml
         src/ui/TitlePanel.qml
+        src/ui/SettingsPanel.qml
 )
 
 # src 供 "core/PlayerController.h" 这类带目录前缀的引用；

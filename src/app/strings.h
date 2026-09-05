@@ -37,4 +37,23 @@ inline constexpr auto kTitlePanelTitle = "标题与章节";
 inline constexpr auto kMainTitleBadge = "主标题";
 inline constexpr auto kNoChapterNames = "本碟未提供章节名，按编号显示";
 
+// 设置页（T7 / D-070）。任何开关都不许静默失败——打开了、底层拒绝了、
+// 用户什么也看不到，正是 D-051 那条教训。%1 由调用方填成 mpv 的错误串。
+inline constexpr auto kSettingsTitle = "设置";
+inline constexpr auto kSetHwdec = "硬件解码";
+inline constexpr auto kSetHwdecHint = "关掉后强制软解，排查花屏/黑屏时用";
+inline constexpr auto kSetExclusive = "独占音频输出";
+inline constexpr auto kSetExclusiveHint = "独占声卡，其它应用暂时发不出声";
+inline constexpr auto kSetPassthrough = "音频直通（比特流）";
+inline constexpr auto kSetPassthroughHint = "把 AC3 / DTS / TrueHD 原样送给功放解码，需要 HDMI 或光纤";
+inline constexpr auto kSetShotDir = "截图目录";
+inline constexpr auto kSetShotDirPick = "选择…";
+inline constexpr auto kSetSacdGain = "SACD 增益 +6dB";
+inline constexpr auto kSetSacdGainHint = "补足 DSD 解码后比 foobar2000 低的约 6dB；快捷键 G 同样可切";
+inline constexpr auto kSettingFailed = "设置未能生效：%1";
+inline constexpr auto kShotFailed = "截图没能保存，检查这个目录是否可写：%1";
+inline constexpr auto kShotDirNotWritable = "这个目录不可写，截图目录没有改：%1";
+inline constexpr auto kPassthroughFellBack = "当前输出设备不接受比特流，已回落为 PCM 解码播放";
+inline constexpr auto kPassthroughNoAo = "打开直通后音频输出打不开，已自动关掉直通";
+
 } // namespace md::strings

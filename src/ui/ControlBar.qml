@@ -11,6 +11,7 @@ Rectangle {
     property alias seekBar: seek
 
     signal requestScreenshot(bool withSubtitles)
+    signal requestSettings()
     signal requestTitlePanel()
     signal requestPrevTitle()
     signal requestNextTitle()
@@ -321,6 +322,17 @@ Rectangle {
                 ToolTip.visible: hovered
                 ToolTip.text: "含字幕与 OSD"
                 onClicked: root.requestScreenshot(true)
+            }
+
+            // 设置页入口（T7 / D-070）。只有快捷键的话没人找得到。
+            ToolButton {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.minimumWidth: implicitWidth
+                focusPolicy: Qt.NoFocus
+                text: "设置"
+                ToolTip.visible: hovered
+                ToolTip.text: "硬解 / 音频输出 / 截图目录 / SACD 增益（快捷键 ,）"
+                onClicked: root.requestSettings()
             }
         }
     }

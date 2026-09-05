@@ -37,6 +37,11 @@ class PlayerController : public QObject {
     // 「用户到底看到了哪句话」的唯一客观手段——T3 的加密盘文案就是这么验的。
     Q_PROPERTY(bool uiLogEnabled READ uiLogEnabled CONSTANT)
     Q_PROPERTY(bool sacdGain READ sacdGain NOTIFY sacdGainChanged)
+    // 设置页五项（T7 / D-070）。全部运行时下发，configs/mpv-baseline.conf 不动（D-013）。
+    Q_PROPERTY(bool hwdecEnabled READ hwdecEnabled NOTIFY hwdecEnabledChanged)
+    Q_PROPERTY(bool audioExclusive READ audioExclusive NOTIFY audioExclusiveChanged)
+    Q_PROPERTY(bool audioPassthrough READ audioPassthrough NOTIFY audioPassthroughChanged)
+    Q_PROPERTY(QString screenshotDirectory READ screenshotDirectory NOTIFY screenshotDirectoryChanged)
     Q_PROPERTY(int playlistPos READ playlistPos NOTIFY playlistPosChanged)
 
 public:
@@ -83,6 +88,16 @@ public:
     // SACD 的 +6dB 增益（深坑 #5）。默认开；临时开关走快捷键 G，正式安家 T7 设置页。
     Q_INVOKABLE void setSacdGain(bool on);
     bool sacdGain() const { return sacdGain_; }
+    bool hwdecEnabled() const { return hwdecEnabled_; }
+    bool audioExclusive() const { return audioExclusive_; }
+    bool audioPassthrough() const { return audioPassthrough_; }
+    QString screenshotDirectory() const;
+    Q_INVOKABLE void setHwdecEnabled(bool on);
+    Q_INVOKABLE void setAudioExclusive(bool on);
+    Q_INVOKABLE void setAudioPassthrough(bool on);
+    Q_INVOKABLE void setScreenshotDirectory(const QString& dir);
+    Q_INVOKABLE QString hwdecCurrent() const;
+    Q_INVOKABLE QString audioSpdifCurrent() const;
     int playlistPos() const { return playlistPos_; }
     Q_INVOKABLE int playlistCount() const;
     // 渲染上下文就绪前收到的加载请求先挂起。mpv 在初始化视频输出时若没有
@@ -123,6 +138,16 @@ signals:
     void subtitleTrackIdChanged();
     void currentUriChanged();
     void sacdGainChanged();
+    void hwdecEnabledChanged();
+    void audioExclusiveChanged();
+    void audioPassthroughChanged();
+    void screenshotDirectoryChanged();
+    // 设置未能生效时必须让用户看见（D-051）：%1 是 mpv 的错误串。
+    void settingFailed(const QString& why);
+    void screenshotDirRejected(const QString& dir);
+    void screenshotFailed(const QString& dir);
+    void passthroughFellBack();
+    void passthroughNoAudioOut();
     void playlistPosChanged();
     // 一个条目真正载入完毕。往播放列表追加后续条目必须等这一刻——
     // loadfile replace 是异步的，抢在它前面 append 会被连锅端掉（T6 阶段 2 实测）。
@@ -175,6 +200,13 @@ private:
     // 「1」这种无意义值（bd://mpls/1 的末段），故由 loadBluray 显式给定。
     QString screenshotStem_;
     bool sacdGain_ = true;
+    bool hwdecEnabled_ = true;
+    bool audioExclusive_ = false;
+    bool audioPassthrough_ = false;
+    QString screenshotDir_;
+    void loadSettings();
+    void applyAudioDeviceOptions();
+    void checkPassthroughTookEffect();
     bool sacdActive_ = false;
     bool sacdFilterAttached_ = false; // 没挂过就别 af remove，否则 mpv 每次都警告一行
     int playlistPos_ = -1;

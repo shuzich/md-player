@@ -11,8 +11,10 @@
 #include <QElapsedTimer>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantMap>
 
 #include <stdexcept>
@@ -59,6 +61,13 @@ static constexpr qint64 kBufferGiveUpMs = 120000;
 // 起显要连续几格都判 stalled。轮询 150 ms、闸门 300 ms，等够的时候连击计数
 // 自然已经到 2，所以去抖**不额外增加点亮延迟**（实测见 D-068 矩阵）。
 static constexpr int kStalledStreakToShow = 2;
+
+// 设置页的持久化键名，沿用 D-019 的 `分组/驼峰` 风格（`ui/hideShortTitles`）。
+constexpr auto kSetKeyHwdec = "playback/hwdec";
+constexpr auto kSetKeyExclusive = "audio/exclusive";
+constexpr auto kSetKeyPassthrough = "audio/passthrough";
+constexpr auto kSetKeyShotDir = "capture/screenshotDir";
+constexpr auto kSetKeySacdGain = "audio/sacdGain";
 
 bool seekLogEnabled() {
     static const bool on = !qgetenv("MD_LOG_SEEK").isEmpty();
@@ -158,6 +167,11 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
 
     // sacd:// 由本进程自己供给字节（T6 阶段 2）。必须在 initialize 之后注册。
     md::media::sacd::registerProtocol(mpv_);
+
+    loadSettings();
+    if (!hwdecEnabled_)
+        mpv_set_property_string(mpv_, "hwdec", "no");
+    applyAudioDeviceOptions();
 
     bufferWatch_.setInterval(kBufferPollMs);
     connect(&bufferWatch_, &QTimer::timeout, this, &PlayerController::tickBufferWatch);
@@ -556,6 +570,163 @@ void PlayerController::setSacdGain(bool on) {
 //    **同样必须在重采样之后**——否则它会被超声噪声的峰值牵着走，对可听内容做出
 //    莫名其妙的增益起伏。
 // 末尾 aformat 保住浮点：不加它 mpv 会把整条链路谈判成 s16（实测）。
+// ---------------------------------------------------------------------------
+// 设置页五项（T7 / D-070）
+//
+// 全部**运行时下发**：`configs/mpv-baseline.conf` 是 T2 定下的手感基线，按 D-013
+// 冻结，一个字不动；那份配置的注释本来就写着「独占与直通由设置页动态下发，
+// 不写死」。持久化走 QSettings，键名沿用 D-019 的 `分组/驼峰` 风格。
+//
+// **任何一项都不许静默失败**：mpv 拒绝了就把它的错误串原样弹给用户（D-051）。
+// ---------------------------------------------------------------------------
+
+void PlayerController::loadSettings() {
+    QSettings st;
+    hwdecEnabled_ = st.value(QString::fromLatin1(kSetKeyHwdec), true).toBool();
+    audioExclusive_ = st.value(QString::fromLatin1(kSetKeyExclusive), false).toBool();
+    audioPassthrough_ = st.value(QString::fromLatin1(kSetKeyPassthrough), false).toBool();
+    sacdGain_ = st.value(QString::fromLatin1(kSetKeySacdGain), true).toBool();
+    screenshotDir_ = st.value(QString::fromLatin1(kSetKeyShotDir)).toString();
+}
+
+QString PlayerController::screenshotDirectory() const {
+    return screenshotDir_.isEmpty() ? screenshotDir() : screenshotDir_;
+}
+
+QString PlayerController::hwdecCurrent() const {
+    if (!mpv_)
+        return {};
+    char* v = mpv_get_property_string(mpv_, "hwdec-current");
+    const QString out = v ? QString::fromUtf8(v) : QString();
+    mpv_free(v);
+    return out;
+}
+
+QString PlayerController::audioSpdifCurrent() const {
+    if (!mpv_)
+        return {};
+    char* v = mpv_get_property_string(mpv_, "audio-spdif");
+    const QString out = v ? QString::fromUtf8(v) : QString();
+    mpv_free(v);
+    return out;
+}
+
+void PlayerController::setHwdecEnabled(bool on) {
+    if (hwdecEnabled_ == on)
+        return;
+    // 基线是 hwdec=auto-safe（深坑：macOS→videotoolbox / Windows→d3d11va，失败自动软解）。
+    // 关掉就是 no。mpv 允许运行时改，当前文件会**重新初始化解码器**（画面会闪一下），
+    // 这是 mpv 的既定行为，不是缺陷；下一次 load 自然用新值。
+    const QByteArray v = on ? QByteArrayLiteral("auto-safe") : QByteArrayLiteral("no");
+    if (mpv_) {
+        if (const int rc = mpv_set_property_string(mpv_, "hwdec", v.constData()); rc < 0) {
+            emit settingFailed(QString::fromUtf8(mpv_error_string(rc)));
+            return;
+        }
+    }
+    hwdecEnabled_ = on;
+    QSettings().setValue(QString::fromLatin1(kSetKeyHwdec), on);
+    qInfo("设置: 硬解 -> %s (mpv hwdec-current=%s)", on ? "开" : "关", qUtf8Printable(hwdecCurrent()));
+    emit hwdecEnabledChanged();
+}
+
+void PlayerController::setAudioExclusive(bool on) {
+    if (audioExclusive_ == on)
+        return;
+    audioExclusive_ = on;
+    QSettings().setValue(QString::fromLatin1(kSetKeyExclusive), on);
+    applyAudioDeviceOptions();
+    emit audioExclusiveChanged();
+}
+
+void PlayerController::setAudioPassthrough(bool on) {
+    if (audioPassthrough_ == on)
+        return;
+    audioPassthrough_ = on;
+    QSettings().setValue(QString::fromLatin1(kSetKeyPassthrough), on);
+    applyAudioDeviceOptions();
+    emit audioPassthroughChanged();
+}
+
+// 独占与直通都要重开 AO 才生效，故一起下发、一起重载音频链。
+void PlayerController::applyAudioDeviceOptions() {
+    if (!mpv_)
+        return;
+    const char* excl = audioExclusive_ ? "yes" : "no";
+    if (const int rc = mpv_set_property_string(mpv_, "audio-exclusive", excl); rc < 0) {
+        emit settingFailed(QString::fromUtf8(mpv_error_string(rc)));
+        return;
+    }
+    // 直通的候选格式表与 baseline.conf 注释里预留的一致。关掉时置空串。
+    const char* spdif = audioPassthrough_ ? "ac3,eac3,dts-hd,truehd" : "";
+    if (const int rc = mpv_set_property_string(mpv_, "audio-spdif", spdif); rc < 0) {
+        emit settingFailed(QString::fromUtf8(mpv_error_string(rc)));
+        return;
+    }
+    qInfo("设置: 独占=%s 直通=%s (mpv audio-spdif=\"%s\")", excl, audioPassthrough_ ? "开" : "关",
+          qUtf8Printable(audioSpdifCurrent()));
+    // 打开直通之后要回头看它到底有没有成真：内置扬声器不接受比特流，mpv 会
+    // 悄悄 `Falling back to PCM output.`——开关打开了、实际没直通、用户什么也
+    // 看不到，正是 D-051 那条教训。AO 重开是异步的，等一拍再读 audio-out-params。
+    if (audioPassthrough_)
+        QTimer::singleShot(1500, this, &PlayerController::checkPassthroughTookEffect);
+
+    // 让新选项对当前文件生效：重开音频轨。没有媒体时什么也不用做。
+    if (hasMedia_) {
+        int64_t aid = 0;
+        if (mpv_get_property(mpv_, "aid", MPV_FORMAT_INT64, &aid) >= 0) {
+            const char* off[] = {"set", "aid", "no", nullptr};
+            mpv_command(mpv_, off);
+            const QByteArray back = QByteArray::number(qlonglong(aid));
+            const char* on2[] = {"set", "aid", back.constData(), nullptr};
+            mpv_command(mpv_, on2);
+        }
+    }
+}
+
+// 直通是否真的生效，只认 mpv 侧的实际输出格式：spdif-* 才算成了。
+void PlayerController::checkPassthroughTookEffect() {
+    if (!mpv_ || !audioPassthrough_ || !hasMedia_)
+        return;
+    char* v = mpv_get_property_string(mpv_, "audio-out-params/format");
+    const QString fmt = v ? QString::fromUtf8(v) : QString();
+    mpv_free(v);
+    char* a = mpv_get_property_string(mpv_, "current-ao");
+    const QString ao = a ? QString::fromUtf8(a) : QString();
+    mpv_free(a);
+    qInfo("设置: 直通生效检查 audio-out-params/format=\"%s\" current-ao=\"%s\"", qUtf8Printable(fmt),
+          qUtf8Printable(ao));
+    if (fmt.startsWith(QLatin1String("spdif")))
+        return; // 真直通了
+    if (fmt.isEmpty() || ao.isEmpty()) {
+        // 连输出格式都读不到 = AO 没开起来。这种情况下用户是真的没声音，
+        // 必须把直通关回去，不能留一个「开着但哑了」的状态。
+        audioPassthrough_ = false;
+        QSettings().setValue(QString::fromLatin1(kSetKeyPassthrough), false);
+        applyAudioDeviceOptions();
+        emit audioPassthroughChanged();
+        emit passthroughNoAudioOut();
+        return;
+    }
+    emit passthroughFellBack(); // 有声音，但走的是 PCM
+}
+
+void PlayerController::setScreenshotDirectory(const QString& dir) {
+    const QString clean = QUrl(dir).isLocalFile() ? QUrl(dir).toLocalFile() : dir;
+    if (clean.isEmpty())
+        return;
+    // 不可写就明说，不静默失败（D-051）。
+    QFileInfo fi(clean);
+    if (!fi.isDir() || !fi.isWritable()) {
+        emit screenshotDirRejected(clean);
+        return;
+    }
+    screenshotDir_ = clean;
+    QSettings().setValue(QString::fromLatin1(kSetKeyShotDir), clean);
+    qInfo("设置: 截图目录 -> %s", qUtf8Printable(clean));
+    emit screenshotDirectoryChanged();
+}
+
 void PlayerController::applySacdGain() {
     if (!mpv_)
         return;
@@ -701,13 +872,17 @@ void PlayerController::screenshot(bool withSubtitles) {
         stem = QStringLiteral("screenshot");
     const QString stamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
     const QString suffix = withSubtitles ? QStringLiteral("subs") : QStringLiteral("clean");
-    const QString path = QStringLiteral("%1/%2_%3_%4.png").arg(screenshotDir(), stem, stamp, suffix);
+    const QString path = QStringLiteral("%1/%2_%3_%4.png").arg(screenshotDirectory(), stem, stamp, suffix);
 
     // "subtitles" = 含字幕与 OSD；"video" = 纯画面（不含任何叠加）。
     const QByteArray rawPath = path.toUtf8();
     const char* args[] = {"screenshot-to-file", rawPath.constData(), withSubtitles ? "subtitles" : "video", nullptr};
     if (const int rc = mpv_command(mpv_, args); rc < 0) {
-        emit errorOccurred(QString::fromUtf8(mpv_error_string(rc)));
+        // mpv 只会回一句 `error running command`，用户看不出是哪儿不对。截图落不下
+        // 来最常见的原因就是目录不可写（设置页可以把它改到任意目录），点名说出来
+        // 才叫「不静默失败」（D-051 / D-070）。
+        qWarning("截图失败: %s (%s)", qUtf8Printable(path), mpv_error_string(rc));
+        emit screenshotFailed(screenshotDirectory());
         return;
     }
     qInfo("截图已保存: %s", qUtf8Printable(path));
