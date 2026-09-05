@@ -55,5 +55,8 @@ inline constexpr auto kShotFailed = "截图没能保存，检查这个目录是�
 inline constexpr auto kShotDirNotWritable = "这个目录不可写，截图目录没有改：%1";
 inline constexpr auto kPassthroughFellBack = "当前输出设备不接受比特流，已回落为 PCM 解码播放";
 inline constexpr auto kPassthroughNoAo = "打开直通后音频输出打不开，已自动关掉直通";
+// 打开直通之前 AO 就已经是坏的（设备被别的应用独占等）：不能归因给直通，
+// 更不能替用户把开关关掉（D-071）。
+inline constexpr auto kAudioOutUnavailable = "音频输出打不开，可能被其它应用独占；这与直通开关无关";
 
 } // namespace md::strings

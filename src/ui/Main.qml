@@ -230,6 +230,7 @@ ApplicationWindow {
         function onScreenshotDirRejected(dir) { toast.show(qsTr("这个目录不可写，截图目录没有改：") + dir) }
         function onScreenshotFailed(dir) { toast.show(qsTr("截图没能保存，检查这个目录是否可写：") + dir) }
         function onPassthroughFellBack() { toast.show(qsTr("当前输出设备不接受比特流，已回落为 PCM 解码播放")) }
+        function onAudioOutUnavailable() { toast.show(qsTr("音频输出打不开，可能被其它应用独占；这与直通开关无关")) }
         function onPassthroughNoAudioOut() { toast.show(qsTr("打开直通后音频输出打不开，已自动关掉直通")) }
         function onScreenshotSaved(path, withSubs) {
             toast.show((withSubs ? "已截图（含字幕）：" : "已截图（纯画面）：") + path)

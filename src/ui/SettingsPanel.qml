@@ -124,21 +124,6 @@ Popup {
         Item { Layout.preferredHeight: 20 }
     }
 
-    Timer { running: root.opened; interval: 1200; repeat: true; onTriggered: {   // [TEMP]
-        var out = []
-        function walk(it, depth) {
-            for (var i = 0; i < it.children.length; i++) {
-                var c = it.children[i]
-                if (c.toString().indexOf("Switch") === 0 || c.toString().indexOf("Button") === 0) {
-                    var g = c.mapToGlobal(c.width/2, c.height/2)
-                    out.push(c.toString().split("_")[0] + "@" + Math.round(g.x) + "," + Math.round(g.y))
-                }
-                walk(c, depth+1)
-            }
-        }
-        walk(root.contentItem, 0)
-        console.log("[TEMPSW] " + out.join(" ")) } }
-
     FolderDialog {
         id: dirPicker
         title: qsTr("选择截图目录")

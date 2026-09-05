@@ -374,6 +374,12 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
             seekTarget_ = -1.0;
         }
         // 诊断用，默认关闭：MD_LOG_PROGRESS=1 时每跨过一整秒打一次点。
+        // 位置每推进一次就打一个时间戳：这是判断「音频到底在不在放」的唯一可靠量
+        // （D-071），直通的归因护栏靠它。
+        if (position_ > lastProgressPos_ + 0.05) {
+            lastProgressPos_ = position_;
+            lastProgressMs_ = seekClock().elapsed();
+        }
         static const bool logProgress = !qgetenv("MD_LOG_PROGRESS").isEmpty();
         // MD_LOG_CACHE=1 顺带把 demuxer 缓存前沿打出来。SACD 的「seek 之后卡几秒」
         // 只能靠这个量定位：卡多久 = (目标 − 缓存前沿) ÷ DST 解码速度（约 20× 实时），
@@ -639,9 +645,27 @@ void PlayerController::setAudioExclusive(bool on) {
     emit audioExclusiveChanged();
 }
 
+// AO 到底开着没有：current-ao 与实际输出格式都拿得到才算健康。
+// AO 到底通不通，**mpv 的属性问不出来**：设备被别的应用独占（hog mode）时，
+// `current-ao` 照样报 `coreaudio`、`audio-out-params/format` 照样有值，而实测播放
+// 卡死在 0.000（12 秒只推进 1 条进度，正常是 12 条）。唯一能分辨的量是**位置有没有
+// 在推进**——音频在放，时间就在走（D-071）。
+bool PlayerController::audioOutHealthy() const {
+    if (!mpv_ || !hasMedia_ || paused_)
+        return false; // 暂停时判断不了，保守起见按「说不准」处理，不去动用户的开关
+    return lastProgressMs_ >= 0 && (seekClock().elapsed() - lastProgressMs_) < 1500;
+}
+
 void PlayerController::setAudioPassthrough(bool on) {
     if (audioPassthrough_ == on)
         return;
+    // **打开之前先记一次 AO 是否正常**。设备被别的应用独占时 AO 本来就开不出来，
+    // 那时打开直通会读到同样的「空」，若不做这一步就会把锅扣给直通、还顺手把
+    // 用户的开关关掉——实测确实如此（D-071）。
+    if (on) {
+        aoHealthyBeforePassthrough_ = audioOutHealthy();
+        qInfo("设置: 打开直通前 AO 健康=%d", aoHealthyBeforePassthrough_ ? 1 : 0);
+    }
     audioPassthrough_ = on;
     QSettings().setValue(QString::fromLatin1(kSetKeyPassthrough), on);
     applyAudioDeviceOptions();
@@ -699,7 +723,13 @@ void PlayerController::checkPassthroughTookEffect() {
     if (fmt.startsWith(QLatin1String("spdif")))
         return; // 真直通了
     if (fmt.isEmpty() || ao.isEmpty()) {
-        // 连输出格式都读不到 = AO 没开起来。这种情况下用户是真的没声音，
+        if (!aoHealthyBeforePassthrough_) {
+            // 打开之前 AO 就是坏的：不归因给直通，**不动用户的开关**，文案改中性。
+            qInfo("设置: 直通打开前 AO 就不可用，不归因给直通，不改开关");
+            emit audioOutUnavailable();
+            return;
+        }
+        // 之前正常、打开后变空 = 确实是直通造成的。用户是真的没声音，
         // 必须把直通关回去，不能留一个「开着但哑了」的状态。
         audioPassthrough_ = false;
         QSettings().setValue(QString::fromLatin1(kSetKeyPassthrough), false);

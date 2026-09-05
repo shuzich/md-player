@@ -148,6 +148,7 @@ signals:
     void screenshotFailed(const QString& dir);
     void passthroughFellBack();
     void passthroughNoAudioOut();
+    void audioOutUnavailable();
     void playlistPosChanged();
     // 一个条目真正载入完毕。往播放列表追加后续条目必须等这一刻——
     // loadfile replace 是异步的，抢在它前面 append 会被连锅端掉（T6 阶段 2 实测）。
@@ -207,6 +208,10 @@ private:
     void loadSettings();
     void applyAudioDeviceOptions();
     void checkPassthroughTookEffect();
+    bool audioOutHealthy() const;
+    bool aoHealthyBeforePassthrough_ = false;
+    qint64 lastProgressMs_ = -1;
+    double lastProgressPos_ = -1.0;
     bool sacdActive_ = false;
     bool sacdFilterAttached_ = false; // 没挂过就别 af remove，否则 mpv 每次都警告一行
     int playlistPos_ = -1;
