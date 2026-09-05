@@ -349,7 +349,7 @@ void PlayerController::handlePropertyChange(mpv_event_property* prop) {
         static const bool logProgress = !qgetenv("MD_LOG_PROGRESS").isEmpty();
         // MD_LOG_CACHE=1 顺带把 demuxer 缓存前沿打出来。SACD 的「seek 之后卡几秒」
         // 只能靠这个量定位：卡多久 = (目标 − 缓存前沿) ÷ DST 解码速度（约 20× 实时），
-        // 与 readahead 无关（D-062 实测 10 与 3600 曲线一致）。
+        // 与 readahead 无关（D-063 实测 10 与 3600 曲线一致）。
         static const bool logCache = !qgetenv("MD_LOG_CACHE").isEmpty();
         if (logProgress || logCache) {
             static int lastWhole = -1;

@@ -143,7 +143,7 @@ Rectangle {
                 id: chapterBox
                 Layout.alignment: Qt.AlignVCenter
                 focusPolicy: Qt.NoFocus
-                popup.focus: true          // 同音轨框，见下方注释（D-061）
+                popup.focus: true          // 同音轨框，见下方注释（D-062）
                 visible: root.player.chapters.length > 0
                 // fillWidth 是「允许被压缩」的开关：实测（Qt 6.11）没有它时 RowLayout
                 // 不会把子项压到 preferredWidth 以下，宁可整排溢出，maximumWidth 才是
@@ -167,8 +167,9 @@ Rectangle {
                 // 深坑 #7：控件把焦点吸走 = 窗口级快捷键静默失效。播控条不是 Popup，
                 // 但没有任何理由让这几个下拉框拿键盘焦点。
                 focusPolicy: Qt.NoFocus
-                // 弹层自己要拿焦点，否则 Popup 自带的 CloseOnEscape 收不到 Esc（D-061）。
-                // 不与深坑 #7 冲突：实测弹层一打开，窗口级快捷键无论焦点在谁手上都已全死。
+                // 弹层自己要拿焦点，否则 Popup 自带的 CloseOnEscape 收不到 Esc（实测 3/3
+                // 关不掉）。不与深坑 #7 冲突：吞掉窗口级快捷键的是 closePolicy 装的按键
+                // 过滤，不是焦点——实测把焦点留在根项时快捷键照样全哑（D-062）。
                 popup.focus: true
                 enabled: root.player.audioTracks.length > 1
                 Layout.fillWidth: true
@@ -183,7 +184,7 @@ Rectangle {
                 displayText: qsTr("音轨：") + root.trackText(model, currentIndex)
                 onActivated: function(i) { root.player.setAudioTrack(model[i].id) }
                 // 「点完下拉框快捷键就哑」查过两轮，两次都因为缺这个量而查错方向：
-                // 真正的原因是弹层还开着（D-061），不是焦点、也不是激活。弹层开合
+                // 真正的原因是弹层还开着（D-062），不是焦点、也不是激活。弹层开合
                 // 本身在日志里完全隐形，故并进 MD_LOG_UI 常驻，零行为改动。
                 popup.onOpened: if (root.player.uiLogEnabled)
                     console.log("[WIN] 音轨弹层打开 type=" + audioBox.popup.popupType
@@ -208,7 +209,7 @@ Rectangle {
                 id: subBox
                 Layout.alignment: Qt.AlignVCenter
                 focusPolicy: Qt.NoFocus
-                popup.focus: true          // 同音轨框（D-061）
+                popup.focus: true          // 同音轨框（D-062）
                 enabled: root.player.subtitleTracks.length > 0
                 Layout.fillWidth: true
                 Layout.preferredWidth: 210

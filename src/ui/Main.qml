@@ -30,11 +30,12 @@ ApplicationWindow {
     title: windowSubject.length > 0 ? windowSubject + " — md-player" : "md-player"
     color: "#101014"
 
-    // 「快捷键突然全哑」有三种成因，现象一模一样、日志里却分得开（深坑 #9 / D-061）：
-    // ① 有下拉框弹层开着 —— active 仍是 true、焦点也还在根项，但快捷键一个都不响，
-    //    这是最常见的一种，两轮误判都栽在它上面；② 焦点被 Popup 吸走（深坑 #7）——
-    //    active 仍是 true、activeFocusItem 变成 QQuickPopupItem；③ 整个 app 的激活
-    //    丢了 —— active 直接是 false。故把这两个量并进 MD_LOG_UI 常驻，零行为改动。
+    // 「快捷键突然全哑」有三种成因，现象一模一样、日志里却分得开（深坑 #9 / D-062）：
+    // ① 有下拉框弹层开着 —— 带 CloseOnEscape/CloseOnPressOutside 的 Popup 会装按键
+    //    过滤把窗口级 Shortcut 一并吃掉，此时 active 与焦点看着都正常。两轮误判都栽
+    //    在这里；② 焦点被 Popup 吸走（深坑 #7）—— activeFocusItem 变成 QQuickPopupItem；
+    //    ③ 整个 app 的激活丢了 —— active 直接是 false。故把这两个量并进 MD_LOG_UI
+    //    常驻，零行为改动；弹层开合另有 ControlBar 里的探针。
     onActiveChanged: if (Player.uiLogEnabled)
         console.log("[WIN] 窗口active=" + active + " 焦点=" + activeFocusItem)
 
