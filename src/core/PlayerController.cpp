@@ -49,6 +49,14 @@ QElapsedTimer& seekClock() {
     }();
     return t;
 }
+// 起显延迟：seek 发出后仍在等这么久，才认为值得打扰用户。落在缓存里的 seek
+// 实测 34–83 ms，视频拖动的每次 keyframes seek 是几十 ms，都够不着这个门槛。
+static constexpr qint64 kBufferHintDelayMs = 300;
+// 轮询周期。要比起显延迟小，否则第一次检查就迟到。
+static constexpr int kBufferPollMs = 150;
+// 兜底：等到这个份上就别再点着灯了（正常最长一次实测 8.2 秒）。
+static constexpr qint64 kBufferGiveUpMs = 120000;
+
 bool seekLogEnabled() {
     static const bool on = !qgetenv("MD_LOG_SEEK").isEmpty();
     return on;
@@ -147,6 +155,9 @@ PlayerController::PlayerController(QObject* parent) : QObject(parent) {
 
     // sacd:// 由本进程自己供给字节（T6 阶段 2）。必须在 initialize 之后注册。
     md::media::sacd::registerProtocol(mpv_);
+
+    bufferWatch_.setInterval(kBufferPollMs);
+    connect(&bufferWatch_, &QTimer::timeout, this, &PlayerController::tickBufferWatch);
 
     observe("time-pos", MPV_FORMAT_DOUBLE);
     observe("duration", MPV_FORMAT_DOUBLE);
@@ -597,6 +608,7 @@ void PlayerController::seekRelative(double seconds) {
         return;
     const QByteArray amount = QByteArray::number(seconds);
     const char* args[] = {"seek", amount.constData(), "relative", nullptr};
+    armBufferWatch();
     mpv_command(mpv_, args);
 }
 
@@ -606,6 +618,10 @@ void PlayerController::seekDrag(double target) {
         return;
     const QByteArray t = QByteArray::number(target);
     const char* args[] = {"seek", t.constData(), "absolute+keyframes", nullptr};
+    // 拖动中的 keyframes seek **不武装**缓冲看门狗。实测蓝光上一次 5 秒拖动发出
+    // 65 次 keyframes seek，其中有一次远跳让解复用器停了 400 ms 以上，指示器就闪了
+    // 一下（亮 1.37 秒）——判据没错，错在场景：拖动时用户盯着进度条，反馈不缺，
+    // 闪一下反而是干扰。松手那次 absolute+exact 照旧武装，落点真要等仍然会提示。
     noteSeekIssued(target, "absolute+keyframes");
     mpv_command(mpv_, args);
 }
@@ -616,6 +632,7 @@ void PlayerController::seekExact(double target) {
         return;
     const QByteArray t = QByteArray::number(target);
     const char* args[] = {"seek", t.constData(), "absolute+exact", nullptr};
+    armBufferWatch();
     noteSeekIssued(target, "absolute+exact");
     mpv_command(mpv_, args);
 }
@@ -805,6 +822,89 @@ void PlayerController::logCacheState() {
     mpv_free_node_contents(&node);
     qInfo("[cache] t=%lldms 位置=%.1f 缓存前沿=%.1fs (领先 %.1fs) 前向占用=%.1fMB", seekClock().elapsed(), position_,
           cacheEnd, cacheEnd >= 0 ? cacheEnd - position_ : 0.0, fwBytes >= 0 ? double(fwBytes) / 1048576.0 : 0.0);
+}
+
+// ---------------------------------------------------------------------------
+// 缓冲指示（D-066）
+//
+// 只做「有没有在等」，**不做进度百分比**：实测卡顿全程 demuxer-cache-state 的
+// 每一个字段都是冻结的（cache-end=-1、fw-bytes=0、total-bytes 与 raw-input-rate
+// 一动不动、underrun=true），mpv 侧也没有任何别的量在推进（stream-pos 返回 -1）
+// ——解复用器线程阻塞在 avformat_seek_file 里，它自己都不知道进度。按前沿推进量
+// 算出来的条只会卡在 0 再跳到 100%，那是假动画。
+//
+// **这里一个由模型推出来的常量都不许出现**（不许有 R / 19.65 / 时长÷20 / B）：
+// DST 的解码速度逐碟不同，同一批实测就给出过 17.4 / 18.2 / 20.5 三个折合值，
+// 硬编码任何一个都会在别的碟上偏。判据全部来自当场读数。
+// ---------------------------------------------------------------------------
+
+void PlayerController::armBufferWatch() {
+    // 缓冲期间再次 seek：重置起点，不叠加（指示灯不会因为连点而提前亮）。
+    bufferArmedMs_ = seekClock().elapsed();
+    if (!bufferWatch_.isActive()) {
+        bufferWatch_.setInterval(kBufferPollMs);
+        bufferWatch_.start();
+    }
+}
+
+bool PlayerController::demuxerStalled() {
+    if (!mpv_)
+        return false;
+    mpv_node node;
+    if (mpv_get_property(mpv_, "demuxer-cache-state", MPV_FORMAT_NODE, &node) < 0)
+        return false;
+    bool haveEnd = false, underrun = false;
+    int64_t fwBytes = -1;
+    if (node.format == MPV_FORMAT_NODE_MAP) {
+        for (int i = 0; i < node.u.list->num; ++i) {
+            const QLatin1String key(node.u.list->keys[i]);
+            const mpv_node& v = node.u.list->values[i];
+            if (key == QLatin1String("cache-end") && v.format == MPV_FORMAT_DOUBLE)
+                haveEnd = v.u.double_ >= 0.0;
+            else if (key == QLatin1String("fw-bytes") && v.format == MPV_FORMAT_INT64)
+                fwBytes = v.u.int64;
+            else if (key == QLatin1String("underrun") && v.format == MPV_FORMAT_FLAG)
+                underrun = v.u.flag != 0;
+        }
+    }
+    mpv_free_node_contents(&node);
+    // 正在 seek 时 mpv 连 cache-end 都不给（键直接不出现，或为负）；
+    // 缓存被丢光而又还没铺回来时 fw-bytes=0 且 underrun。两者取或。
+    return !haveEnd || (fwBytes == 0 && underrun);
+}
+
+void PlayerController::tickBufferWatch() {
+    if (bufferArmedMs_ < 0) {
+        bufferWatch_.stop();
+        setBuffering(false);
+        return;
+    }
+    const qint64 waited = seekClock().elapsed() - bufferArmedMs_;
+    if (waited < kBufferHintDelayMs)
+        return;
+    if (waited > kBufferGiveUpMs) {
+        bufferArmedMs_ = -1;
+        bufferWatch_.stop();
+        setBuffering(false);
+        return;
+    }
+    if (demuxerStalled()) {
+        setBuffering(true);
+        return;
+    }
+    bufferArmedMs_ = -1;
+    bufferWatch_.stop();
+    setBuffering(false);
+}
+
+void PlayerController::setBuffering(bool on) {
+    if (buffering_ == on)
+        return;
+    buffering_ = on;
+    if (!qgetenv("MD_LOG_CACHE").isEmpty())
+        qInfo("[buffer] t=%lldms 缓冲指示 -> %s（seek 后 %lld ms）", seekClock().elapsed(), on ? "显示" : "隐藏",
+              bufferArmedMs_ >= 0 ? seekClock().elapsed() - bufferArmedMs_ : -1);
+    emit bufferingChanged();
 }
 
 void PlayerController::noteSeekIssued(double target, const char* flags) {

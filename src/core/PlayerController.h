@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QTimer>
 #include <QUrl>
 #include <QVariantList>
 
@@ -16,6 +17,7 @@ class PlayerController : public QObject {
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY durationChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY pausedChanged)
+    Q_PROPERTY(bool buffering READ buffering NOTIFY bufferingChanged)
     Q_PROPERTY(bool hasMedia READ hasMedia NOTIFY hasMediaChanged)
     Q_PROPERTY(QString mediaTitle READ mediaTitle NOTIFY mediaTitleChanged)
     Q_PROPERTY(QString videoInfo READ videoInfo NOTIFY videoInfoChanged)
@@ -47,6 +49,7 @@ public:
     double position() const { return position_; }
     double duration() const { return duration_; }
     bool paused() const { return paused_; }
+    bool buffering() const { return buffering_; }
     bool hasMedia() const { return hasMedia_; }
     QString mediaTitle() const { return mediaTitle_; }
     QString videoInfo() const { return videoInfo_; }
@@ -107,6 +110,7 @@ signals:
     void positionChanged();
     void durationChanged();
     void pausedChanged();
+    void bufferingChanged();
     void hasMediaChanged();
     void mediaTitleChanged();
     void videoInfoChanged();
@@ -146,6 +150,16 @@ private:
     static QString screenshotDir();
     void noteSeekIssued(double target, const char* flags);
     void logCacheState();
+    // 缓冲指示（D-066）。信号只取 demuxer-cache-state；不用 paused-for-cache
+    // （实测整个卡顿期一次不触发，D-062/D-064），也不用 [seek] 耗时（量的是
+    // position 属性更新，D-064）。
+    void armBufferWatch();
+    void tickBufferWatch();
+    bool demuxerStalled();
+    void setBuffering(bool on);
+    QTimer bufferWatch_;
+    qint64 bufferArmedMs_ = -1;
+    bool buffering_ = false;
     void loadInternal(const QString& uri, const QString& resumeKey);
 
     mpv_handle* mpv_ = nullptr;

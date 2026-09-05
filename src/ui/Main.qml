@@ -113,6 +113,60 @@ ApplicationWindow {
     // 三种碟共用 TitlePanel（鸭子类型对齐）。一次只持有一张，所以取第一个 discOpen 的。
     readonly property var activeDisc: Bluray.discOpen ? Bluray : (Dvd.discOpen ? Dvd : (Sacd.discOpen ? Sacd : Bluray))
 
+    // 缓冲指示（D-066）。DST 轨在铺缓存窗口内跳到未缓存区间要等几秒，此前画面与
+    // 播控条完全没有反馈，看着像卡死。
+    // **刻意不用 Popup**：带 CloseOnEscape 的弹层会把窗口级快捷键一并吃掉（D-062），
+    // 一个纯提示没有任何理由去动键盘。就是一块 Item，不吃焦点、不吃按键。
+    // 不显示百分比——实测卡顿期 mpv 侧没有任何量在推进（D-066），画出来的条是假的。
+    Rectangle {
+        id: bufferHint
+        anchors.centerIn: parent
+        width: hintRow.implicitWidth + 36
+        height: 52
+        radius: 8
+        color: "#dd101014"
+        border { width: 1; color: "#3a3a44" }
+        visible: Player.buffering
+        z: 50
+
+        Row {
+            id: hintRow
+            anchors.centerIn: parent
+            spacing: 12
+
+            // 不确定式转轮：转的是它，不是进度条——免得把「在动」误读成「进度」。
+            Item {
+                width: 16; height: 16
+                anchors.verticalCenter: parent.verticalCenter
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "transparent"
+                    border { width: 2; color: "#3a3a44" }
+                }
+                Item {
+                    id: spinner
+                    anchors.fill: parent
+                    Rectangle {
+                        width: 5; height: 5; radius: 2.5; color: "#e8503a"
+                        x: parent.width / 2 - 2.5; y: -1
+                    }
+                    RotationAnimation on rotation {
+                        running: bufferHint.visible
+                        loops: Animation.Infinite
+                        from: 0; to: 360; duration: 1100
+                    }
+                }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("缓冲中…")
+                color: "#e6e6ea"
+                font.pixelSize: 15
+            }
+        }
+    }
+
     // 标题·章节面板（T3 蓝光 / T4 DVD 共用）。非模态，开着也不影响播控与快捷键。
     TitlePanel {
         id: titlePanel
