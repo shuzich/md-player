@@ -76,6 +76,7 @@ cmake --build build
 8. **重叠的 TapHandler 会一起触发**：父项与子项各挂一个 `TapHandler` 且区域重叠时，点子项会**两个都响应**（T3 的标题行与展开箭头就是这样，点箭头顺带把该标题重新载入一遍；蓝光上不明显，DVD 换 title 要几秒，一眼可见）。解法是让点击区物理不重叠——把行的 `TapHandler` 挂到一个 anchors 避开箭头的 `Item` 上，而不是指望事件被"消费"。
 9. **交互验证前先确保环境干净**：跑任何 UI 验证之前必须先清 `resume.json`（断点记录）、`pkill md-player` 确认没有残留进程、确认没有模态框开着。曾经因为遗留断点记录让模态续播框一直开着，把「模态框挡住点击 + 按住快捷键失效」整整误判成播控条与快捷键功能回归，白查了十几轮。**现象不对先怀疑环境，再怀疑代码。**
    **「点完下拉框快捷键就全哑」，两轮都误判成焦点或激活问题，真正的原因是弹层还开着**（机制见深坑 #7 第三段，已在 D-062 修掉）。**裸二进制与 .app 在这件事上没有任何差别**：裸二进制的激活策略 Qt 的 cocoa 插件已经设成 `Regular`（实测 `Regular -> Regular`），`System Events` 也稳定枚举到 `count of windows = 1`，D-010 不受影响、**不必为验收去打 .app 包**（D-061 作废了此处上一版关于「后台型进程 / 激活被交还」的机制描述）。**验证前只需确认两件事：窗口是 frontmost（日志打 `Window.active`），以及没有任何弹层开着**（`MD_LOG_UI` 会打弹层开合）。少看后一个量，就会把「弹层没关」当成焦点或激活问题查下去。
+   **合成按键验 `Ctrl` 组合要发 `command down`，发 `control down` 一点反应都没有**：Qt 在 macOS 把 `Ctrl` 映射成 Command，QML 里写的 `Ctrl+Right` 实际是 `⌘→`。本轮为此白跑了两次，日志里既没有 seek 也没有任何报错——和「快捷键失效」长得一模一样（D-068）。
 10. **mpv 的「属性无值」事件 data 是空指针**：`aid` / `sid` 关成 `no` 时，mpv 发的 `MPV_EVENT_PROPERTY_CHANGE` 带的是 `MPV_FORMAT_NONE` + `data == nullptr`，而不是某个负数。`handlePropertyChange` 开头那道 `if (!prop->data) return;` 闸门会把这类事件整个吞掉，于是「关字幕」在 mpv 侧生效了、UI 状态却永远停在上一条轨上——没有任何报错，看起来就像点了没反应。凡是**能被关闭**的属性（aid / sid / vid / 各种 `-delay`），一律在空指针闸门**之前**单独处理，把 NONE 折算成 -1。查这类问题时先用 `MD_LOG_PROPS=1` 看 `fmt=0 data=0x0`，再用 `mpv_get_property_string` 对一遍 mpv 侧真值，别只信 UI（issue #2）。
 
 11. **验证方法缺参照系 —— 两种典型，都会给出「没问题」的假结论**：

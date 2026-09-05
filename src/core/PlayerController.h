@@ -159,6 +159,7 @@ private:
     void setBuffering(bool on);
     QTimer bufferWatch_;
     qint64 bufferArmedMs_ = -1;
+    int stalledStreak_ = 0;
     bool buffering_ = false;
     void loadInternal(const QString& uri, const QString& resumeKey);
 

@@ -56,6 +56,9 @@ static constexpr qint64 kBufferHintDelayMs = 300;
 static constexpr int kBufferPollMs = 150;
 // 兜底：等到这个份上就别再点着灯了（正常最长一次实测 8.2 秒）。
 static constexpr qint64 kBufferGiveUpMs = 120000;
+// 起显要连续几格都判 stalled。轮询 150 ms、闸门 300 ms，等够的时候连击计数
+// 自然已经到 2，所以去抖**不额外增加点亮延迟**（实测见 D-068 矩阵）。
+static constexpr int kStalledStreakToShow = 2;
 
 bool seekLogEnabled() {
     static const bool on = !qgetenv("MD_LOG_SEEK").isEmpty();
@@ -840,7 +843,10 @@ void PlayerController::logCacheState() {
 
 void PlayerController::armBufferWatch() {
     // 缓冲期间再次 seek：重置起点，不叠加（指示灯不会因为连点而提前亮）。
+    // 连击计数一并清零——快照必须归属**最新**这次 seek，不能拿上一次攒的格数
+    // 给这一次点灯（D-068）。
     bufferArmedMs_ = seekClock().elapsed();
+    stalledStreak_ = 0;
     if (!bufferWatch_.isActive()) {
         bufferWatch_.setInterval(kBufferPollMs);
         bufferWatch_.start();
@@ -880,21 +886,31 @@ void PlayerController::tickBufferWatch() {
         return;
     }
     const qint64 waited = seekClock().elapsed() - bufferArmedMs_;
-    if (waited < kBufferHintDelayMs)
-        return;
-    if (waited > kBufferGiveUpMs) {
+    // **每一格都读、每一格都可能熄灭**。上一版在 waited < 300 ms 时直接 return，
+    // 于是「亮起来之后」只要 seek 一直来（拖动/按住方向键，30–50 ms 一发），
+    // waited 永远够不到 300 ms，灯就再也熄不掉——一次 392 ms 的误判因此膨胀成
+    // 1.37 秒的闪烁（D-067 定性，D-068 修）。熄灭是纠错路径，不该被起显闸门挡住。
+    const bool stalled = demuxerStalled();
+    if (!stalled) {
+        stalledStreak_ = 0;
         bufferArmedMs_ = -1;
         bufferWatch_.stop();
         setBuffering(false);
         return;
     }
-    if (demuxerStalled()) {
-        setBuffering(true);
+    ++stalledStreak_;
+    if (waited > kBufferGiveUpMs) {
+        stalledStreak_ = 0;
+        bufferArmedMs_ = -1;
+        bufferWatch_.stop();
+        setBuffering(false);
         return;
     }
-    bufferArmedMs_ = -1;
-    bufferWatch_.stop();
-    setBuffering(false);
+    // 起显要两个条件同时成立：等够了 **且** 连续两格都读到 stalled。
+    // 单格快照会串台：seek 首尾相接时，读到的「缓存空」可能属于同一毫秒里
+    // 刚开始的**下一次** seek，而不是刚结束的这次等待（D-067 的逐毫秒时序）。
+    if (waited >= kBufferHintDelayMs && stalledStreak_ >= kStalledStreakToShow)
+        setBuffering(true);
 }
 
 void PlayerController::setBuffering(bool on) {

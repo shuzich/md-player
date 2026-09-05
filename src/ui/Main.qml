@@ -12,9 +12,14 @@ ApplicationWindow {
     // Layout.minimumWidth(120) 之后，整行内容实测 1073 px，加左右边距 16+16
     // 得 1105（D-065）。绑到 ControlBar 自己算出来的值上，加控件时自动跟随。
     minimumWidth: Math.ceil(controls.minWindowWidth)
-    // 高度侧的硬约束实测只有 178 px（播控条 78 + 续播框 100，都是运行期量的），
-    // 现值 405 已经覆盖且还给画面留了地方，本轮不动（D-065）。
-    minimumHeight: 405
+    // 续播框打开时的实测高度（D-065）。它是高度侧唯一一个「必须整个放得下」
+    // 的元素——面板是可滚动列表，没有硬下限。
+    readonly property int resumeDialogMinHeight: 100
+    // 405 是产品取值：硬约束只有 播控条高 + 续播框 = 178 px，但按硬下限设会让
+    // 窗口能被压成一条几乎没有画面的横条，那不是「能用」。405 之上的部分是留给
+    // 画面的。取 max 是为了让**硬约束自动跟随**——播控条日后长高，下限跟着涨，
+    // 与宽度侧同一形态；产品取值 405 不变（D-065 / D-068）。
+    minimumHeight: Math.max(405, Math.ceil(controls.implicitHeight + resumeDialogMinHeight))
     visible: true
     // 碟类资源优先用碟内名字：mpv 的 media-title 对 bd:// / dvd:// / sacd:// 只会给出
     // URI 末段（sacd://1/0/10 → 「10」，dvd://5 → 「5」），拿去当窗口标题毫无意义。
