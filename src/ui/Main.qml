@@ -353,7 +353,22 @@ ApplicationWindow {
     Shortcut { sequence: "t"; enabled: !resumeDialog.opened && root.activeDisc.discOpen
                onActivated: titlePanel.opened ? titlePanel.close() : titlePanel.open() }
     // 面板的 Esc 关闭：TitlePanel 刻意不取焦点，Popup.CloseOnEscape 用不了，改走这里。
-    Shortcut { sequence: "Escape"; enabled: titlePanel.opened; onActivated: titlePanel.close() }
+    // Esc 的派发顺序显式写死，不靠「谁先声明谁先吃」：
+    //   ① 下拉框弹层开着 → 关弹层（它盖在最上层，且是用户最后打开的东西）；
+    //   ② 否则面板开着   → 关面板；
+    //   ③ 否则不处理。
+    // 续播框不在此列：它是 focus: true 的模态框，开着时窗口级快捷键整体失效，
+    // 它的 Esc 由 Popup 内部沿父链接住的按键处理（D-032）。
+    Shortcut {
+        sequence: "Escape"
+        enabled: controls.anyPopupOpen || titlePanel.opened
+        onActivated: {
+            if (controls.anyPopupOpen)
+                controls.closePopups()
+            else if (titlePanel.opened)
+                titlePanel.close()
+        }
+    }
     // SACD 的 +6dB 增益临时开关（深坑 #5）。正式入口在 T7 设置页，这里先给个快捷键，
     // 好让「开/关 A/B 是否可闻」这条人工验收跑得起来。
     Shortcut { sequence: "g"; enabled: !resumeDialog.opened && Sacd.discOpen

@@ -33,6 +33,15 @@ Rectangle {
     // 播控条排得下排不下，在没有屏幕录制权限的机器上于日志里完全隐形（同 T3 的面板
     // 开合）。音轨/字幕两个框改成常驻后多占 420px，MD_LOG_UI 下打一行「内容总宽 /
     // 可用宽」，溢出与否一眼可判（D-058）。
+    // 给窗口级 Esc 用：三个下拉框的弹层不再自己收 Esc（closePolicy 只留
+    // CloseOnPressOutside），关闭动作统一由 Main.qml 的 Shortcut 派发（D-062）。
+    readonly property bool anyPopupOpen: audioBox.popup.opened || subBox.popup.opened || chapterBox.popup.opened
+    function closePopups() {
+        audioBox.popup.close()
+        subBox.popup.close()
+        chapterBox.popup.close()
+    }
+
     function logExtent(why) {
         if (root.player.uiLogEnabled)
             console.log("[BAR] " + why + " 控件总宽=" + Math.round(controlsRow.childrenRect.width)
@@ -143,7 +152,7 @@ Rectangle {
                 id: chapterBox
                 Layout.alignment: Qt.AlignVCenter
                 focusPolicy: Qt.NoFocus
-                popup.focus: true          // 同音轨框，见下方注释（D-062）
+                popup.closePolicy: Popup.CloseOnPressOutside   // 同音轨框，见下方注释（D-062）
                 visible: root.player.chapters.length > 0
                 // fillWidth 是「允许被压缩」的开关：实测（Qt 6.11）没有它时 RowLayout
                 // 不会把子项压到 preferredWidth 以下，宁可整排溢出，maximumWidth 才是
@@ -167,10 +176,12 @@ Rectangle {
                 // 深坑 #7：控件把焦点吸走 = 窗口级快捷键静默失效。播控条不是 Popup，
                 // 但没有任何理由让这几个下拉框拿键盘焦点。
                 focusPolicy: Qt.NoFocus
-                // 弹层自己要拿焦点，否则 Popup 自带的 CloseOnEscape 收不到 Esc（实测 3/3
-                // 关不掉）。不与深坑 #7 冲突：吞掉窗口级快捷键的是 closePolicy 装的按键
-                // 过滤，不是焦点——实测把焦点留在根项时快捷键照样全哑（D-062）。
-                popup.focus: true
+                // 去掉默认 closePolicy 里的 CloseOnEscape。吞掉窗口级快捷键的是
+                // closePolicy 而不是焦点：实测把焦点留在根项（不给弹层 focus）时
+                // 快捷键照样全哑，而把 closePolicy 换成 NoAutoClose 则全部恢复。
+                // 只留 CloseOnPressOutside：点外面照样关得掉，弹层开着时 T / 空格 /
+                // 方向键全部照常工作，Esc 由窗口级 Shortcut 承担（D-062）。
+                popup.closePolicy: Popup.CloseOnPressOutside
                 enabled: root.player.audioTracks.length > 1
                 Layout.fillWidth: true
                 Layout.preferredWidth: 210
@@ -209,7 +220,7 @@ Rectangle {
                 id: subBox
                 Layout.alignment: Qt.AlignVCenter
                 focusPolicy: Qt.NoFocus
-                popup.focus: true          // 同音轨框（D-062）
+                popup.closePolicy: Popup.CloseOnPressOutside   // 同音轨框（D-062）
                 enabled: root.player.subtitleTracks.length > 0
                 Layout.fillWidth: true
                 Layout.preferredWidth: 210

@@ -200,7 +200,7 @@ MD_LOG_UI=1 ./build/md-player tests/fixtures/generated/broken/truncated-udf.iso
 |---|---|
 | `MD_LOG_PROGRESS=1` | 按秒打印播放进度与暂停态变化 |
 | `MD_LOG_PROPS=1` | 打印全部 mpv 属性变更事件 |
-| `MD_LOG_SEEK=1` | 打印每次 seek 的标志、目标，以及「命令 → position 属性追上目标」的耗时。**这个耗时量的是属性更新，不是音频续上**——纯音频远跳时它恒为 0–1 ms，而实际可能卡好几秒（D-064）。查「卡多久」用 `MD_LOG_MPV=v` 的 `execute seek → starting audio playback`，查缓存前沿用 `MD_LOG_CACHE=1` |
+| `MD_LOG_SEEK=1` | 打印每次 seek 的标志、目标，以及「命令 → position 属性追上目标」的耗时。**这个耗时量的是属性更新，不是「画面到位」，也不是音频续上**——视频上它比真正出画（mpv 的 `first video frame after restart shown`）早 0–31 ms，纯音频远跳时它恒为 0–1 ms 而实际可能卡好几秒（D-064）。查「卡多久」用 `MD_LOG_MPV=v` 的 `execute seek → starting audio playback`，查缓存前沿用 `MD_LOG_CACHE=1` |
 | `MD_LOG_CACHE=1` | 按秒打印 demuxer 缓存前沿与前向占用（`[cache]` 行）。SACD 的「seek 之后卡几秒」只能靠这个量定位：卡顿 ≈ (目标 − 缓存前沿) ÷ 约 20× 实时（D-063） |
 | `MD_LOG_TRACKS=1` | 打印章节与音轨/字幕轨枚举结果 |
 | `MD_LOG_UI=1` | 把提示条（toast）文案打到 stdout，用于无截屏权限时校验用户实际看到的文案 |
