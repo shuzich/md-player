@@ -7,7 +7,13 @@ ApplicationWindow {
 
     width: 1280
     height: 720
-    minimumWidth: 720
+    // 窄窗口下播控条会溢出（D-058：蓝光上内容 1322 > 可用 1248，右端被挤出窗口）。
+    // 裁决是设最小宽度、不做条件隐藏。这个值不是拍的：三个下拉框压到各自的
+    // Layout.minimumWidth(120) 之后，整行内容实测 1073 px，加左右边距 16+16
+    // 得 1105（D-065）。绑到 ControlBar 自己算出来的值上，加控件时自动跟随。
+    minimumWidth: Math.ceil(controls.minWindowWidth)
+    // 高度侧的硬约束实测只有 178 px（播控条 78 + 续播框 100，都是运行期量的），
+    // 现值 405 已经覆盖且还给画面留了地方，本轮不动（D-065）。
     minimumHeight: 405
     visible: true
     // 碟类资源优先用碟内名字：mpv 的 media-title 对 bd:// / dvd:// / sacd:// 只会给出

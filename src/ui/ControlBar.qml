@@ -42,9 +42,29 @@ Rectangle {
         chapterBox.popup.close()
     }
 
+    // 播控条这一行压到底时需要多宽。三个下拉框各有 Layout.minimumWidth（120），
+    // 其余控件按自身 implicitWidth 钉死，所以这个和是**内容的硬下限**，窗口的
+    // minimumWidth 由它 + 左右边距推出来（D-065）。写成算式而不是魔数：以后加一个
+    // 按钮，这里自动跟着变，不会又出现「改了控件忘了改窗口下限」的溢出。
+    readonly property real minContentWidth: {
+        var sum = 0, n = 0
+        for (var i = 0; i < controlsRow.children.length; i++) {
+            var c = controlsRow.children[i]
+            if (c.visible === false) continue
+            var m = c.Layout.minimumWidth
+            // 逐项向上取整：控件的 implicitWidth 常带小数（文字测量），直接累加会
+            // 比实际布局少 1 px，窗口就正好停在「内容比行宽多 1」的位置上（实测）。
+            sum += Math.ceil(m > 0 ? m : c.implicitWidth)
+            n++
+        }
+        return sum + Math.max(0, n - 1) * controlsRow.spacing
+    }
+    readonly property real minWindowWidth: minContentWidth + 32   // 左右边距各 16
+
     function logExtent(why) {
         if (root.player.uiLogEnabled)
-            console.log("[BAR] " + why + " 控件总宽=" + Math.round(controlsRow.childrenRect.width)
+            console.log("[BAR] " + why + " 最小内容宽=" + Math.round(root.minContentWidth)
+                        + " 控件总宽=" + Math.round(controlsRow.childrenRect.width)
                         + " 可用宽=" + Math.round(controlsRow.width)
                         + (controlsRow.childrenRect.width > controlsRow.width ? "  溢出!" : "  放得下"))
     }
